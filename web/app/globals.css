@@ -1,0 +1,194 @@
+@import "tailwindcss";
+
+/* Sidequest tokens */
+:root {
+  /* Dealt by tasteskill: palette mint-pink-accounts, type plex, radius soft (web/.taste-skill/history.json) */
+  --es-bg: #f8f8f8;
+  --es-surface: #ffffff;
+  --es-surface-2: #eeeeee;
+  --es-ink: #0a0a0a;
+  --es-muted: #6a6a6a;
+  --es-line: #e4e4e4;
+  --es-line-strong: #cfcfcf;
+  --es-accent: #1f6b3a;
+  --es-accent-ink: #ffffff;
+  --es-accent-soft: #e4f0e8;
+  --es-ok: #1f6b3a;
+  --es-ok-soft: #e4f0e8;
+  --es-warn: #8f5300;
+  --es-warn-soft: #fbefd9;
+  --es-bad: #b42318;
+  --es-bad-soft: #fde8e6;
+  --es-radius-s: 8px;
+  --es-radius-m: 12px;
+  --es-shadow: 0 1px 2px rgb(10 10 10 / 0.04);
+}
+
+@theme inline {
+  --color-bg: var(--es-bg);
+  --color-surface: var(--es-surface);
+  --color-surface-2: var(--es-surface-2);
+  --color-ink: var(--es-ink);
+  --color-muted: var(--es-muted);
+  --color-line: var(--es-line);
+  --color-line-strong: var(--es-line-strong);
+  --color-accent: var(--es-accent);
+  --color-accent-ink: var(--es-accent-ink);
+  --color-accent-soft: var(--es-accent-soft);
+  --color-ok: var(--es-ok);
+  --color-ok-soft: var(--es-ok-soft);
+  --color-warn: var(--es-warn);
+  --color-warn-soft: var(--es-warn-soft);
+  --color-bad: var(--es-bad);
+  --color-bad-soft: var(--es-bad-soft);
+  --radius-s: var(--es-radius-s);
+  --radius-m: var(--es-radius-m);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--es-bg);
+  color: var(--es-ink);
+  font-family: var(--font-plex-sans), system-ui, sans-serif;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--es-accent);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .panel {
+    background: var(--es-surface);
+    border: 1px solid var(--es-line);
+    border-radius: var(--es-radius-m);
+    box-shadow: var(--es-shadow);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    padding: 0 1.1rem;
+    border-radius: var(--es-radius-s);
+    font-weight: 500;
+    font-size: 0.925rem;
+    transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  }
+  .btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(0) scale(0.98);
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--es-accent);
+    color: var(--es-accent-ink);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--es-accent) 88%, black);
+  }
+  .btn-secondary {
+    background: var(--es-surface);
+    color: var(--es-ink);
+    border: 1px solid var(--es-line-strong);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    border-color: var(--es-ink);
+  }
+
+  .field {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 0.85rem;
+    border-radius: var(--es-radius-s);
+    border: 1px solid var(--es-line-strong);
+    background: var(--es-surface);
+    color: var(--es-ink);
+    font-size: 0.95rem;
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--es-accent);
+    box-shadow: 0 0 0 3px var(--es-accent-soft);
+  }
+  .field[aria-invalid="true"] {
+    border-color: var(--es-bad);
+  }
+
+  .label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 36px;
+    padding: 0 0.85rem;
+    border-radius: 999px;
+    border: 1px solid var(--es-line-strong);
+    background: var(--es-surface);
+    font-size: 0.875rem;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+  .chip:hover:not(:disabled) {
+    border-color: var(--es-ink);
+  }
+  .chip[aria-pressed="true"] {
+    background: var(--es-ink);
+    border-color: var(--es-ink);
+    color: var(--es-bg);
+  }
+  .chip:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .eyebrow {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--es-muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* CopilotKit chat: take our tokens */
+.scout-chat {
+  --copilot-kit-primary-color: var(--es-accent);
+  --copilot-kit-contrast-color: var(--es-accent-ink);
+  --copilot-kit-background-color: var(--es-surface);
+  --copilot-kit-separator-color: var(--es-line);
+  height: 100%;
+}
