@@ -3,12 +3,15 @@
 Run (stdio): uv run python -m mcp_servers.event_sources.server
 """
 import json
+import os
 import re
 from datetime import date, timedelta
 from functools import cache
 from pathlib import Path
 
 from dotenv import load_dotenv
+from google.api_core import exceptions as gapi_errors
+from google.auth import exceptions as auth_errors
 from google import genai
 from google.genai import errors as genai_errors
 from mcp.server.mcpserver import MCPServer
@@ -19,7 +22,8 @@ from shared.schemas import Platform, SocialPost
 
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")  # the stdio client passes no API keys to this process
-FIXTURES = ROOT / "fixtures" / "posts.json"
+FIXTURES = ROOT / "fixtures" / ("live_posts.json" if os.getenv("DEMO_MODE") == "live" else "posts.json")  # live: real posts, cached by fetch_live.py
+GUARD = os.getenv("GUARD", "gemini")  # gemini | model_armor
 GUARD_MODEL = "gemini-3.5-flash-lite"
 NOTE = "Results may be incomplete"
 
@@ -53,8 +57,25 @@ def llm_flags(text: str) -> bool:
     return r.parsed is None or r.parsed.injection  # unparseable verdict = blocked (fail closed)
 
 
+@cache
+def _armor():
+    from google.cloud import modelarmor_v1  # only installed with `uv sync --extra gcp`
+    location = os.environ["MODEL_ARMOR_TEMPLATE"].split("/")[3]  # projects/<p>/locations/<location>/templates/<t>
+    return modelarmor_v1, modelarmor_v1.ModelArmorClient(
+        client_options={"api_endpoint": f"modelarmor.{location}.rep.googleapis.com"})
+
+
+@cache
+def armor_flags(text: str) -> bool:
+    """GUARD=model_armor: Google Model Armor's prompt-injection/jailbreak filter instead of a Gemini call."""
+    ma, client = _armor()
+    r = client.sanitize_user_prompt(request=ma.SanitizeUserPromptRequest(
+        name=os.environ["MODEL_ARMOR_TEMPLATE"], user_prompt_data=ma.DataItem(text=text)))
+    return r.sanitization_result.filter_match_state == ma.FilterMatchState.MATCH_FOUND
+
+
 def is_poisoned(text: str) -> bool:
-    return bool(SUSPICIOUS.search(text)) or llm_flags(text)
+    return bool(SUSPICIOUS.search(text)) or (armor_flags if GUARD == "model_armor" else llm_flags)(text)
 
 
 # --- Filters ---------------------------------------------------------------------------------
@@ -105,9 +126,9 @@ def search_posts(platform: Platform, city: str, hashtags: list[str], days_ahead:
     try:
         posts = [SocialPost.model_validate(p) for p in json.loads(FIXTURES.read_text())]
     except (OSError, ValueError) as e:
-        raise ToolError("SOURCE_UNAVAILABLE: fixtures could not be read") from e
+        raise ToolError(f"SOURCE_UNAVAILABLE: {FIXTURES.name} could not be read") from e
 
-    # shortcut: fixtures ignore hashtags (only 9 posts), pass them to Apify once DEMO_MODE=live exists
+    # shortcut: hashtags are ignored, live posts come from the Apify cache (a run takes 1-2 min, too slow per scan)
     start = today()
     candidates = [p for p in posts
                   if p.platform == platform
@@ -119,6 +140,10 @@ def search_posts(platform: Platform, city: str, hashtags: list[str], days_ahead:
         if e.code == 429:
             raise ToolError("RATE_LIMITED: guard model rate-limited, try again in a minute") from e
         raise ToolError("SOURCE_UNAVAILABLE: guard model unavailable") from e
+    except gapi_errors.ResourceExhausted as e:
+        raise ToolError("RATE_LIMITED: Model Armor quota reached, try again in a minute") from e
+    except (gapi_errors.GoogleAPIError, auth_errors.GoogleAuthError, ImportError, KeyError, IndexError) as e:
+        raise ToolError("SOURCE_UNAVAILABLE: Model Armor unavailable or not set up") from e  # fail closed too
 
     clean = [p for p, bad in zip(candidates, verdicts) if not bad]
     return SearchResult(posts=clean, blocked=sum(verdicts), note=NOTE)

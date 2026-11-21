@@ -7,6 +7,8 @@ node_modules/
 .next/
 .playwright-mcp/
 .DS_Store
+# real third-party posts from Apify (DEMO_MODE=live), not ours to publish
+/fixtures/live_posts.json
 
 # Private, never commit: personal coupon links and material that is not ours to publish
 /Mail_updates_from_GDG.md
