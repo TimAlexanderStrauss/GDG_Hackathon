@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/event-scout.iml" filepath="$PROJECT_DIR$/.idea/event-scout.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/GDG_Hackathon.iml" filepath="$PROJECT_DIR$/.idea/GDG_Hackathon.iml" />
     </modules>
   </component>
 </project>
