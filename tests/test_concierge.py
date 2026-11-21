@@ -63,3 +63,18 @@ def test_enroll_marks_failed_when_agent_gives_no_result(monkeypatch):
     ctx = _ctx(_click())
     result, _ = _run(ctx, monkeypatch, reply="")
     assert result["status"] == "failed"
+
+
+def test_scout_result_is_replaced_by_json_events_from_state():
+    ctx = _ctx(None)
+    raw = [object()]  # stands in for the HttpUrl objects ADK puts into the result
+    out = concierge._json_safe_scouts(SimpleNamespace(name="scout_pipeline"), {}, ctx, raw)
+    assert out == {"events": ctx.state["events"]} and json.dumps(out)
+    assert concierge._json_safe_scouts(SimpleNamespace(name="enroll"), {}, ctx, {"x": 1}) is None
+
+
+def test_enroll_repairs_empty_link_from_small_model(monkeypatch):
+    click = _click()
+    reply = json.dumps({"event_id": "wrong", "status": "manual", "message": "1.\n2.", "link": ""})
+    result, _ = _run(_ctx(click), monkeypatch, reply)
+    assert result["status"] == "manual" and result["event_id"] == click["event_id"] and result["link"]
