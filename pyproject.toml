@@ -1,0 +1,25 @@
+[project]
+name = "event-scout"
+version = "0.1.0"
+description = "Multi-agent event scout: finds events on social media and enrolls the user (DevFest Münster 2026)"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "google-adk[a2a,mcp]==2.15.0", # if AG-UI breaks: pin 1.39.1 (see PLAN.md, Risiken)
+    "ag-ui-adk==0.13.0",
+    "apify-client>=3.5",            # only DEMO_MODE=live
+    "httpx",                        # Google Form submit
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+gcp = ["google-cloud-modelarmor>=0.7"]  # only GUARD=model_armor
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
