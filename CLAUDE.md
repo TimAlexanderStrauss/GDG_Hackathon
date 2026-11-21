@@ -1,12 +1,12 @@
-# Event Scout – Regeln für Claude
+# Event Scout – rules for Claude
 
-Vier Leute bauen parallel, jede Person mit eigener Claude-Session. Deadline: Showcase um 15:00.
+Four people build in parallel, each with their own Claude session. Deadline: showcase at 15:00.
 
-- Plan, Architektur und Arbeitspakete: `PLAN.md`. Lies den Abschnitt deines Pakets, bevor du baust.
-- Verträge: `shared/schemas.py` ist die Quelle der Wahrheit, `shared/schemas.ts` der Spiegel. Nur nach Absprache im Team ändern.
-- Arbeite nur im Ordner deines Pakets (`web/`, `agents/<paket>/`, `mcp_servers/`). So gibt es keine Merge-Konflikte.
-- mcp 2.x: `from mcp.server.mcpserver import MCPServer` (`FastMCP` gibt es nicht mehr). Keinen Ordner `mcp/` anlegen, er würde das Paket überdecken.
-- Abhängigkeiten nur mit `uv add`, Tests mit `uv run pytest`.
-- Secrets nur in `.env`: nie committen, nie ausgeben, nie in Logs schreiben. `DEMO_MODE=fixtures` ist der Standard.
-- Kleinste funktionierende Lösung, keine Extras. Stretch-Ziele erst, wenn das MVP integriert ist.
-- Commit und Push nur, wenn der Mensch es sagt. Vorher `git pull --rebase`.
+- Plan, architecture and work packages: `PLAN.md`. Read the section of your package before you build.
+- Contracts: `shared/schemas.py` is the single source of truth, `shared/schemas.ts` mirrors it. Change them only after the team agrees.
+- Work only in the folder of your package (`web/`, `agents/<package>/`, `mcp_servers/`). This avoids merge conflicts.
+- mcp 2.x: `from mcp.server.mcpserver import MCPServer` (`FastMCP` no longer exists). Do not create a folder `mcp/`, it would shadow the package.
+- Add dependencies only with `uv add`, run tests with `uv run pytest`.
+- Secrets only in `.env`: never commit them, never print them, never write them to logs. `DEMO_MODE=fixtures` is the default.
+- Smallest working solution, no extras. Stretch goals only once the MVP is integrated.
+- Commit and push only when the human says so. Run `git pull --rebase` first.

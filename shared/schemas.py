@@ -44,7 +44,7 @@ class Event(BaseModel):
     registration_url: HttpUrl | None = None
     enrollment_mode: Literal["auto", "manual", "unknown"] = "unknown"  # auto = Google Form
     match_score: float = 0.0  # 0..1
-    match_reason: str = ""  # "Passt zu: AI, abends, Münster"
+    match_reason: str = ""  # "Matches: AI, evenings, Münster"
 
 
 class EnrollmentRequest(BaseModel):
