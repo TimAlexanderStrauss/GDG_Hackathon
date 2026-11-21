@@ -1,27 +1,27 @@
 @import "tailwindcss";
 
-/* Sidequest tokens */
+/* Sidequest design tokens (design direction board): white + cool gray, charcoal, brand orange. */
 :root {
-  /* Dealt by tasteskill: palette mint-pink-accounts, type plex, radius soft (web/.taste-skill/history.json) */
-  --es-bg: #f8f8f8;
+  --es-bg: #ffffff;
   --es-surface: #ffffff;
-  --es-surface-2: #eeeeee;
-  --es-ink: #0a0a0a;
-  --es-muted: #6a6a6a;
-  --es-line: #e4e4e4;
-  --es-line-strong: #cfcfcf;
-  --es-accent: #1f6b3a;
-  --es-accent-ink: #ffffff;
-  --es-accent-soft: #e4f0e8;
-  --es-ok: #1f6b3a;
-  --es-ok-soft: #e4f0e8;
-  --es-warn: #8f5300;
-  --es-warn-soft: #fbefd9;
-  --es-bad: #b42318;
+  --es-surface-2: #f5f6f8;
+  --es-ink: #171717;
+  --es-muted: #596273;
+  --es-line: #e4e7ec;
+  --es-line-strong: #d0d5dd;
+  --es-accent: #ff5a36;
+  --es-accent-hover: #f04a26;
+  --es-accent-ink: #171717; /* charcoal on orange: 5.8:1 (white would be 3.1:1) */
+  --es-accent-soft: #ffe6dc;
+  --es-ok: #171717; /* success = charcoal + ✓ (no green in the brand palette) */
+  --es-ok-soft: #f5f6f8;
+  --es-warn: #9a4d00;
+  --es-warn-soft: #fff1dc;
+  --es-bad: #c0261a;
   --es-bad-soft: #fde8e6;
-  --es-radius-s: 8px;
-  --es-radius-m: 12px;
-  --es-shadow: 0 1px 2px rgb(10 10 10 / 0.04);
+  --es-radius-s: 12px; /* inputs */
+  --es-radius-m: 16px; /* cards */
+  --es-shadow: 0 1px 2px rgb(16 24 40 / 0.05);
 }
 
 @theme inline {
@@ -41,10 +41,8 @@
   --color-warn-soft: var(--es-warn-soft);
   --color-bad: var(--es-bad);
   --color-bad-soft: var(--es-bad-soft);
-  --radius-s: var(--es-radius-s);
-  --radius-m: var(--es-radius-m);
-  --font-sans: var(--font-plex-sans);
-  --font-mono: var(--font-plex-mono);
+  --font-sans: var(--font-manrope), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 
 html {
@@ -54,18 +52,18 @@ html {
 body {
   background: var(--es-bg);
   color: var(--es-ink);
-  font-family: var(--font-plex-sans), system-ui, sans-serif;
+  font-family: var(--font-manrope), system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 h1,
 h2,
 h3 {
-  font-weight: 500;
-  letter-spacing: -0.025em;
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
 
 :focus-visible {
-  outline: 2px solid var(--es-accent);
+  outline: 2px solid var(--es-ink);
   outline-offset: 2px;
 }
 
@@ -81,13 +79,13 @@ h3 {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
-    min-height: 44px;
-    padding: 0 1.1rem;
-    border-radius: var(--es-radius-s);
-    font-weight: 500;
-    font-size: 0.925rem;
-    transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+    gap: 8px;
+    min-height: 48px;
+    padding: 0 24px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 1rem;
+    transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease;
   }
   .btn:hover:not(:disabled) {
     transform: translateY(-1px);
@@ -96,15 +94,17 @@ h3 {
     transform: translateY(0) scale(0.98);
   }
   .btn:disabled {
-    opacity: 0.5;
     cursor: not-allowed;
+    background: var(--es-surface-2);
+    border-color: var(--es-line);
+    color: var(--es-muted);
   }
   .btn-primary {
     background: var(--es-accent);
     color: var(--es-accent-ink);
   }
   .btn-primary:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--es-accent) 88%, black);
+    background: var(--es-accent-hover);
   }
   .btn-secondary {
     background: var(--es-surface);
@@ -114,21 +114,29 @@ h3 {
   .btn-secondary:hover:not(:disabled) {
     border-color: var(--es-ink);
   }
+  .btn-sm {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 0.875rem;
+  }
 
   .field {
     width: 100%;
-    min-height: 44px;
-    padding: 0 0.85rem;
+    min-height: 48px;
+    padding: 0 16px;
     border-radius: var(--es-radius-s);
-    border: 1px solid var(--es-line-strong);
+    border: 1px solid var(--es-line);
     background: var(--es-surface);
     color: var(--es-ink);
-    font-size: 0.95rem;
+    font-size: 1rem;
+  }
+  .field:hover {
+    border-color: var(--es-line-strong);
   }
   .field:focus {
     outline: none;
     border-color: var(--es-accent);
-    box-shadow: 0 0 0 3px var(--es-accent-soft);
+    box-shadow: 0 0 0 4px var(--es-accent-soft);
   }
   .field[aria-invalid="true"] {
     border-color: var(--es-bad);
@@ -136,41 +144,51 @@ h3 {
 
   .label {
     display: block;
-    margin-bottom: 0.4rem;
-    font-size: 0.85rem;
-    font-weight: 500;
+    margin-bottom: 8px;
+    font-size: 0.875rem;
+    font-weight: 700;
   }
 
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    min-height: 36px;
-    padding: 0 0.85rem;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 18px;
     border-radius: 999px;
-    border: 1px solid var(--es-line-strong);
+    border: 1px solid var(--es-line);
     background: var(--es-surface);
-    font-size: 0.875rem;
-    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    color: var(--es-ink);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    transition: background-color 120ms ease, border-color 120ms ease;
   }
   .chip:hover:not(:disabled) {
     border-color: var(--es-ink);
   }
   .chip[aria-pressed="true"] {
-    background: var(--es-ink);
-    border-color: var(--es-ink);
-    color: var(--es-bg);
+    background: var(--es-accent-soft);
+    border-color: var(--es-accent-soft);
+    color: var(--es-ink);
+  }
+  .chip[aria-pressed="true"]::after {
+    content: "✓";
+    font-size: 0.8em;
   }
   .chip:disabled {
     cursor: not-allowed;
-    opacity: 0.55;
+    color: var(--es-muted);
+    background: var(--es-surface-2);
+  }
+  .chip-lg {
+    min-height: 52px;
+    padding: 0 22px;
+    font-size: 1rem;
   }
 
   .eyebrow {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: 0.8125rem;
+    font-weight: 700;
     color: var(--es-muted);
   }
 }
@@ -184,11 +202,8 @@ h3 {
   }
 }
 
-/* CopilotKit chat: take our tokens */
+/* CopilotKit chat takes our tokens */
 .scout-chat {
-  --copilot-kit-primary-color: var(--es-accent);
-  --copilot-kit-contrast-color: var(--es-accent-ink);
-  --copilot-kit-background-color: var(--es-surface);
-  --copilot-kit-separator-color: var(--es-line);
   height: 100%;
+  font-family: var(--font-manrope), system-ui, sans-serif;
 }

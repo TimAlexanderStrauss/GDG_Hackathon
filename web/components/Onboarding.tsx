@@ -78,28 +78,83 @@ export function Onboarding({ initial, isEdit, onSubmit, onCancel }: Props) {
     : [];
   const chipSet = [...new Set([...SUGGESTED_INTERESTS, ...d.interests])];
   const mark = (k: keyof ProfileDraft) =>
-    imported.includes(k) ? <span className="ml-2 text-xs font-medium text-accent">Imported</span> : null;
+    imported.includes(k) ? <span className="ml-2 text-xs font-semibold text-muted">Imported</span> : null;
 
   return (
-    <div className="mx-auto grid w-full max-w-6xl gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:py-12">
-      <form onSubmit={submit} noValidate className="panel p-5 sm:p-8" aria-labelledby="onb-title">
-        <p className="eyebrow">{isEdit ? "Preferences" : "Step 2 of 2"}</p>
-        <h1 id="onb-title" className="mt-2 text-2xl font-medium tracking-tight sm:text-3xl">
-          {isEdit ? "Edit what Sidequest looks for" : "Tell Sidequest what you like"}
-        </h1>
-        <p className="mt-2 max-w-prose text-muted">
-          Scouts read public posts for your city and rank events against these preferences. Nothing is booked
-          without your click.
+    <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-16">
+      <header className="text-center">
+        <p className="eyebrow">{isEdit ? "Your preferences" : "Step 2 of 2"}</p>
+        <h1 className="mt-3 text-4xl leading-[1.05] text-balance sm:text-6xl">Less scrolling. More going.</h1>
+        <p className="mx-auto mt-4 max-w-xl text-lg text-muted">
+          Pick a few interests so we can find local events you&apos;ll actually love. Nothing is booked without your
+          click.
         </p>
+      </header>
 
+      <ImportPanel onApply={applyImport} />
+
+      <form onSubmit={submit} noValidate className="panel mt-6 p-6 sm:p-10" aria-label="Your preferences">
         {missing.length > 0 && (
-          <p role="status" className="mt-5 rounded-[var(--es-radius-s)] bg-accent-soft px-4 py-3 text-sm">
+          <p role="status" className="mb-8 rounded-[12px] bg-accent-soft px-4 py-3 text-sm">
             Imported {imported.length} {imported.length === 1 ? "field" : "fields"}. Still needed:{" "}
             <strong>{missing.join(", ")}</strong>.
           </p>
         )}
 
-        <div className="mt-7 grid gap-5 sm:grid-cols-2">
+        <fieldset aria-describedby={errors.interests ? "e-interests" : undefined}>
+          <legend className="text-2xl font-extrabold tracking-tight">
+            What are you into? {mark("interests")}
+          </legend>
+          <p className="mt-1 text-sm text-muted">
+            {d.interests.length} of {MAX_INTERESTS} picked
+          </p>
+          <div id="f-interests" tabIndex={-1} className="mt-5 flex flex-wrap gap-3">
+            {chipSet.map((i) => (
+              <button
+                key={i}
+                type="button"
+                className="chip chip-lg"
+                aria-pressed={d.interests.includes(i)}
+                onClick={() => toggleInterest(i)}
+                disabled={!d.interests.includes(i) && d.interests.length >= MAX_INTERESTS}
+              >
+                {i}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 flex max-w-md gap-2">
+            <label htmlFor="f-custom" className="sr-only">
+              Add your own interest
+            </label>
+            <input
+              id="f-custom"
+              className="field"
+              placeholder="Add your own, e.g. Jazz"
+              value={custom}
+              maxLength={30}
+              onChange={(e) => setCustom(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addCustom();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={addCustom}
+              disabled={!custom.trim() || d.interests.length >= MAX_INTERESTS}
+            >
+              Add
+            </button>
+          </div>
+          <FieldError id="e-interests" msg={errors.interests} />
+        </fieldset>
+
+        <hr className="my-10 border-line" />
+
+        <div className="grid gap-6 sm:grid-cols-2">
           <div>
             <label className="label" htmlFor="f-display_name">
               Name {mark("display_name")}
@@ -132,8 +187,8 @@ export function Onboarding({ initial, isEdit, onSubmit, onCancel }: Props) {
             {errors.email ? (
               <FieldError id="e-email" msg={errors.email} />
             ) : (
-              <p id="h-email" className="mt-1.5 text-xs text-muted">
-                Only sent to the enrollment agent after you click Enroll me.
+              <p id="h-email" className="mt-2 text-xs text-muted">
+                Only shared with the enrollment agent after you click Enroll me.
               </p>
             )}
           </div>
@@ -156,7 +211,7 @@ export function Onboarding({ initial, isEdit, onSubmit, onCancel }: Props) {
             <label className="label" htmlFor="f-days_ahead">
               Look ahead {mark("days_ahead")}
             </label>
-            <div className="flex items-center gap-3">
+            <div className="flex min-h-12 items-center gap-4">
               <input
                 id="f-days_ahead"
                 type="range"
@@ -167,65 +222,14 @@ export function Onboarding({ initial, isEdit, onSubmit, onCancel }: Props) {
                 className="h-11 flex-1 accent-[var(--es-accent)]"
                 aria-valuetext={`${d.days_ahead} days`}
               />
-              <span className="w-16 text-right text-sm font-semibold tabular-nums">{d.days_ahead} days</span>
+              <span className="w-20 text-right font-bold tabular-nums">{d.days_ahead} days</span>
             </div>
             <FieldError id="e-days_ahead" msg={errors.days_ahead} />
           </div>
         </div>
 
-        <fieldset className="mt-7" aria-describedby={errors.interests ? "e-interests" : undefined}>
-          <legend className="label">
-            Interests {mark("interests")}
-            <span className="ml-2 font-normal text-muted">
-              {d.interests.length}/{MAX_INTERESTS}
-            </span>
-          </legend>
-          <div id="f-interests" tabIndex={-1} className="flex flex-wrap gap-2">
-            {chipSet.map((i) => (
-              <button
-                key={i}
-                type="button"
-                className="chip"
-                aria-pressed={d.interests.includes(i)}
-                onClick={() => toggleInterest(i)}
-                disabled={!d.interests.includes(i) && d.interests.length >= MAX_INTERESTS}
-              >
-                {i}
-              </button>
-            ))}
-          </div>
-          <div className="mt-3 flex max-w-sm gap-2">
-            <label htmlFor="f-custom" className="sr-only">
-              Add your own interest
-            </label>
-            <input
-              id="f-custom"
-              className="field"
-              placeholder="Add your own, e.g. Jazz"
-              value={custom}
-              maxLength={30}
-              onChange={(e) => setCustom(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addCustom();
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={addCustom}
-              disabled={!custom.trim() || d.interests.length >= MAX_INTERESTS}
-            >
-              Add
-            </button>
-          </div>
-          <FieldError id="e-interests" msg={errors.interests} />
-        </fieldset>
-
-        <fieldset className="mt-7" aria-describedby="h-platforms">
-          <legend className="label">Sources to scan {mark("platforms")}</legend>
+        <fieldset className="mt-8" aria-describedby="h-platforms">
+          <legend className="label">Where should your scouts look? {mark("platforms")}</legend>
           <div id="f-platforms" tabIndex={-1} className="flex flex-wrap gap-2">
             {PLATFORMS.map((p) => (
               <button
@@ -240,49 +244,44 @@ export function Onboarding({ initial, isEdit, onSubmit, onCancel }: Props) {
             ))}
             {PLANNED_PLATFORMS.map((p) => (
               <button key={p.id} type="button" className="chip" disabled aria-pressed={false}>
-                {p.label}
-                <span className="text-xs text-muted">soon</span>
+                {p.label} <span className="text-xs">soon</span>
               </button>
             ))}
           </div>
           <p id="h-platforms" className="mt-2 text-xs text-muted">
-            Scouts read public posts only. No account login is needed. X and Facebook are not in today&apos;s demo.
+            Public posts only, no account login. X and Facebook are not in today&apos;s demo.
           </p>
           <FieldError id="e-platforms" msg={errors.platforms} />
         </fieldset>
 
-        <div className="mt-7 rounded-[var(--es-radius-s)] border border-line bg-surface-2 p-4">
-          <label className="flex cursor-pointer items-start gap-3">
-            <input
-              id="f-consent_enrollment"
-              type="checkbox"
-              className="mt-1 h-5 w-5 shrink-0 accent-[var(--es-accent)]"
-              checked={d.consent_enrollment}
-              onChange={(e) => set("consent_enrollment", e.target.checked)}
-            />
-            <span>
-              <span className="font-semibold">May enroll me after my click</span>
-              <span className="mt-0.5 block text-sm text-muted">
-                Lets the enrollment agent fill a sign-up form for an event when you click Enroll me on it. It never
-                signs you up for anything you didn&apos;t click.
-              </span>
+        <label className="mt-8 flex cursor-pointer items-start gap-3 rounded-[12px] bg-surface-2 p-4">
+          <input
+            id="f-consent_enrollment"
+            type="checkbox"
+            className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--es-accent)]"
+            checked={d.consent_enrollment}
+            onChange={(e) => set("consent_enrollment", e.target.checked)}
+          />
+          <span>
+            <span className="font-bold">May enroll me after my click</span>
+            <span className="mt-0.5 block text-sm text-muted">
+              Lets the enrollment agent fill a sign-up form when you click Enroll me on an event. It never signs you up
+              for anything you didn&apos;t click.
             </span>
-          </label>
-        </div>
+          </span>
+        </label>
 
-        <div className="mt-8 flex flex-wrap gap-3">
-          <button type="submit" className="btn btn-primary">
-            {isEdit ? "Save and scan again" : "Save and find events"}
-          </button>
+        <div className="mt-10 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           {onCancel && (
             <button type="button" className="btn btn-secondary" onClick={onCancel}>
               Cancel
             </button>
           )}
+          <button type="submit" className="btn btn-primary sm:min-w-56">
+            Find my events
+          </button>
         </div>
       </form>
-
-      <ImportPanel onApply={applyImport} />
     </div>
   );
 }
@@ -290,7 +289,7 @@ export function Onboarding({ initial, isEdit, onSubmit, onCancel }: Props) {
 function FieldError({ id, msg }: { id: string; msg?: string }) {
   if (!msg) return null;
   return (
-    <p id={id} className="mt-1.5 text-sm text-bad">
+    <p id={id} className="mt-2 text-sm font-semibold text-bad">
       {msg}
     </p>
   );

@@ -11,7 +11,7 @@ cp .env.example .env.local   # optional, defaults work locally
 npm run dev                  # http://localhost:3000
 ```
 
-Checks: `npx tsc --noEmit`, `npm run lint`, `npm run build`.
+Checks: `npx tsc --noEmit`, `npm run lint`, `npm run build`. Design system: [DESIGN.md](DESIGN.md).
 
 ## Environment (web/.env.local)
 
