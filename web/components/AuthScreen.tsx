@@ -45,7 +45,7 @@ export function AuthScreen({ onSignIn }: { onSignIn: (s: Session) => void }) {
           {/* eslint-disable-next-line @next/next/no-img-element -- decorative static SVG */}
           <img src="/sidequest-mark.svg" alt="" aria-hidden width={72} height={72} className="h-[72px] w-[72px]" />
           <h1 className="mt-6 text-5xl leading-[1.02] text-balance sm:text-6xl">Less scrolling. More going.</h1>
-          <p className="mt-5 text-xl text-muted">
+          <p className="mt-5 text-xl">
             Sidequest finds the events in Münster that match your interests, and signs you up when you say so.
           </p>
           <ul className="mt-8 space-y-3">

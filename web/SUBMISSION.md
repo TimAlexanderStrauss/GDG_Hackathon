@@ -50,6 +50,7 @@ The system prompt is a request; the tool set is the boundary. Showing every tool
 ## What's next
 
 - Real sign-in (Google OAuth first) and a live data provider in place of the fixtures.
+- Recommendations from connected accounts: the people and venues you follow on Instagram, X and Facebook tune the ranking (needs official API access).
 - X and Facebook as sources once the shared contract and the scouts support them.
 - Event cards as A2UI surfaces, Model Armor as the guard, and deployment on Cloud Run.
 

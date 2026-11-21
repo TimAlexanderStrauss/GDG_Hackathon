@@ -88,7 +88,7 @@ export function ScoutApp() {
         onCancel={profile ? () => setEditing(false) : undefined}
       />
     );
-  else view = <Dashboard profile={profile} scanRequest={scanRequest} onEdit={() => setEditing(true)} />;
+  else view = <Dashboard profile={profile} socials={session.socials} scanRequest={scanRequest} onEdit={() => setEditing(true)} />;
 
   return (
     <CopilotKitProvider runtimeUrl={RUNTIME_PATH} enableInspector={false} showIntelligenceIndicator={false}>

@@ -56,6 +56,7 @@ P3 must provide:
 
 - **Sign-in** (Google, Instagram, X, Facebook, email) is a demo: no OAuth, the session is in `sessionStorage`. Real login needs OAuth apps (Meta and X need app review).
 - **"Connect" socials** only records the choice (labelled "Added (demo)"). Instagram and TikTok also preselect scan sources. X and Facebook are not in the shared `Platform` type and no scout reads them.
+  The added socials go to the concierge as a hint in each scan message ("I use instagram, x; prefer events from those communities."). Recommendations from real follows and likes need official API access: roadmap.
 - **AI import:** copy a prompt into ChatGPT, Claude or Grok and paste the JSON reply back. Only preferences are taken; email and consent are always ignored.
 
 ## Limitations

@@ -11,12 +11,14 @@ import { EventCards } from "./EventCards";
 
 type Props = {
   profile: UserProfile;
+  /** Socials added in the demo Connect step; sent as a hint, no account data yet. */
+  socials: string[];
   /** Increments each time the user saves the form, to start a fresh scan. */
   scanRequest: number;
   onEdit: () => void;
 };
 
-export function Dashboard({ profile, scanRequest, onEdit }: Props) {
+export function Dashboard({ profile, socials, scanRequest, onEdit }: Props) {
   const { agent, isReady } = useAgent({ agentId: AGENT_ID });
   const { copilotkit } = useCopilotKit();
   const { pending } = useChoice();
@@ -47,7 +49,8 @@ export function Dashboard({ profile, scanRequest, onEdit }: Props) {
       content:
         `Find events for me in ${profile.city} in the next ${profile.days_ahead} days. ` +
         `Interests: ${profile.interests.join(", ")}. Sources: ${profile.platforms.join(", ")}. ` +
-        "My full profile is in the shared state under `profile`.",
+        "My full profile is in the shared state under `profile`." +
+        (socials.length ? ` I use ${socials.join(", ")}; prefer events from those communities.` : ""),
     });
     setHasRun(true);
     try {
@@ -55,7 +58,7 @@ export function Dashboard({ profile, scanRequest, onEdit }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Your scout did not respond.");
     }
-  }, [agent, copilotkit, profile]);
+  }, [agent, copilotkit, profile, socials]);
 
   // Start a scan once per form save, as soon as the agent is connected.
   useEffect(() => {

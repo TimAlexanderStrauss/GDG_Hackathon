@@ -18,7 +18,7 @@ export function SocialsStep({ initial, onDone }: { initial: Social[]; onDone: (s
           Add your socials
         </h1>
         <p className="mt-3 text-lg text-muted">
-          Pick the networks you use. Instagram and TikTok also become scan sources. You can change this later.
+          Pick the networks you use. Instagram and TikTok also become scan sources. Soon, the accounts you follow there will tune your recommendations too.
         </p>
 
         <ul className="mt-8 divide-y divide-line rounded-[16px] border border-line">
