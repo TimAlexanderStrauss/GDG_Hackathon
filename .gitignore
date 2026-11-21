@@ -7,3 +7,8 @@ node_modules/
 .next/
 .playwright-mcp/
 .DS_Store
+
+# Private, never commit: personal coupon links and material that is not ours to publish
+/Mail_updates_from_GDG.md
+/Google Workshop.pdf
+/Hackathon Notes.pdf
