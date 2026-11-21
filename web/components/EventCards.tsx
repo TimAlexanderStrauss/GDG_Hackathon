@@ -3,6 +3,7 @@
 import { siInstagram, siTiktok } from "simple-icons";
 import { answerChoice, useChoice } from "@/lib/choice-store";
 import { PLATFORMS, type AgentState, type Event, type Platform } from "@/lib/types";
+import { mapsOpenUrl, mapsQuery } from "@/lib/maps";
 import { BrandIcon } from "./BrandIcon";
 
 type Status = NonNullable<AgentState["enrollments"]>[string];
@@ -177,14 +178,26 @@ export function EventCards({ events, enrollments = {}, consent, compact, toolCal
                   Ask your scout to enroll you in this one.
                 </p>
               )}
-              <a
-                href={e.source_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 flex min-h-11 items-center justify-center text-sm font-semibold underline decoration-line-strong underline-offset-4 hover:decoration-ink"
-              >
-                View original post
-              </a>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 text-sm font-semibold">
+                <a
+                  href={e.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 items-center underline decoration-line-strong underline-offset-4 hover:decoration-ink"
+                >
+                  View original post
+                </a>
+                {mapsQuery(e) && (
+                  <a
+                    href={mapsOpenUrl(mapsQuery(e)!)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex min-h-11 items-center underline decoration-line-strong underline-offset-4 hover:decoration-ink"
+                  >
+                    Google Maps
+                  </a>
+                )}
+              </div>
             </div>
           </li>
         );

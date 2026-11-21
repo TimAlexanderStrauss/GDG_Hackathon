@@ -8,6 +8,7 @@ import type { AgentState, UserProfile } from "@/lib/types";
 import { ActivityPanel, ScanStatusLine } from "./Activity";
 import { ChooseEventTool } from "./ChooseEventTool";
 import { EventCards } from "./EventCards";
+import { EventMap } from "./EventMap";
 
 type Props = {
   profile: UserProfile;
@@ -25,6 +26,7 @@ export function Dashboard({ profile, socials, scanRequest, onEdit }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [hasRun, setHasRun] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [view, setView] = useState<"cards" | "map">("cards");
   const handled = useRef(0);
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -121,12 +123,35 @@ export function Dashboard({ profile, socials, scanRequest, onEdit }: Props) {
           <div className="mt-5">
             {events.length > 0 ? (
               <>
-                {pending && (
-                  <p className="mb-3 text-sm font-semibold" role="status">
-                    Your scout is waiting for your pick. Nothing is booked until you click.
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm font-semibold" role="status">
+                    {pending
+                      ? "Your scout is waiting for your pick. Nothing is booked until you click."
+                      : view === "map"
+                        ? "Enroll from the cards view."
+                        : ""}
                   </p>
+                  <div className="inline-flex rounded-full border border-line bg-surface p-1" role="group" aria-label="View">
+                    {(["cards", "map"] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setView(v)}
+                        aria-pressed={view === v}
+                        className={`min-h-10 rounded-full px-5 text-sm font-bold transition-colors ${
+                          view === v ? "bg-ink text-surface" : "text-muted hover:text-ink"
+                        }`}
+                      >
+                        {v === "cards" ? "Cards" : "Map"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {view === "map" ? (
+                  <EventMap events={events} enrollments={state.enrollments} />
+                ) : (
+                  <EventCards events={events} enrollments={state.enrollments} consent={profile.consent_enrollment} />
                 )}
-                <EventCards events={events} enrollments={state.enrollments} consent={profile.consent_enrollment} />
               </>
             ) : isRunning ? (
               <div aria-live="polite">

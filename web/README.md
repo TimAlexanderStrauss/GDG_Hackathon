@@ -59,6 +59,10 @@ P3 must provide:
   The added socials go to the concierge as a hint in each scan message ("I use instagram, x; prefer events from those communities."). Recommendations from real follows and likes need official API access: roadmap.
 - **AI import:** copy a prompt into ChatGPT, Claude or Grok and paste the JSON reply back. Only preferences are taken; email and consent are always ignored.
 
+## Map
+
+Discovery has a **Cards / Map** switch. The map is the keyless Google Maps embed (`lib/maps.ts`): one event at a time, picked from the list beside it, plus an "Open in Google Maps" link on every card. No API key and no billing. A single map with a pin per event would need the Maps JavaScript API with a billed key and geocoding (events only carry venue and city text).
+
 ## Limitations
 
 - Tested end to end against a mock AG-UI agent, not yet against P3's real concierge.
