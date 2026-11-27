@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { siInstagram, siTiktok } from "simple-icons";
 import { answerChoice, useChoice } from "@/lib/choice-store";
 import { PLATFORMS, type AgentState, type Event, type Platform } from "@/lib/types";
@@ -13,6 +14,8 @@ const STATUS: Record<Status, { text: string; cls: string }> = {
   registered: { text: "✓ You're registered", cls: "bg-accent-soft text-ink" },
   manual: { text: "Sign-up steps in chat", cls: "bg-accent-soft text-ink" },
   failed: { text: "Enrollment failed", cls: "bg-bad-soft text-bad" },
+  not_needed: { text: "✓ No sign-up needed – just go", cls: "bg-accent-soft text-ink" },
+  purchased: { text: "✓ Ticket bought", cls: "bg-accent-soft text-ink" },
 };
 
 const TZ = "Europe/Berlin";
@@ -56,9 +59,14 @@ type Props = {
   compact?: boolean;
   /** Restrict the enroll buttons to one pending choose_event call. */
   toolCallId?: string;
+  /** Marks an event as purchased in the shared agent state (only where an agent is available). */
+  onPurchased?: (id: string) => void;
 };
 
-export function EventCards({ events, enrollments = {}, consent, compact, toolCallId }: Props) {
+const LINK_CLS = "inline-flex min-h-11 items-center underline decoration-line-strong underline-offset-4 hover:decoration-ink";
+
+export function EventCards({ events, enrollments = {}, consent, compact, toolCallId, onPurchased }: Props) {
+  const [clicked, setClicked] = useState<Set<string>>(new Set());
   const { pending, answered } = useChoice();
   const active = pending && (!toolCallId || pending.toolCallId === toolCallId) ? pending : null;
   const choosable = new Set(active?.events.map((e) => e.id));
@@ -74,7 +82,51 @@ export function EventCards({ events, enrollments = {}, consent, compact, toolCal
         const s = status ? STATUS[status] : null;
         const d = dateParts(e.start);
         const canEnroll = !!active && choosable.has(e.id);
-        const label = consent && e.enrollment_mode === "auto" ? "Enroll me" : "Get sign-up steps";
+        const buy = e.signup === "tickets" ? e.ticket : null;
+        const openPost = e.signup === "unknown" || e.signup === "link_in_bio" || (e.signup === "tickets" && !buy);
+        const postUrl = e.registration_url ?? e.source_url;
+        const label =
+          e.signup === "none"
+            ? "Just go · add to calendar"
+            : e.signup === "web_form"
+              ? "Get sign-up link"
+              : e.signup === "message"
+                ? "Prepare message"
+                : consent
+                  ? "Enroll me"
+                  : "Get sign-up steps";
+        // Actions that need no pending choose_event call: ticket deep link, open post.
+        const direct = buy || openPost;
+        const btn = compact ? "btn btn-primary btn-sm mt-2 w-full" : "btn btn-primary w-full";
+        const directAction = buy ? (
+          buy.availability === "sold_out" ? (
+            <p className="rounded-full bg-surface-2 px-4 py-3 text-center text-sm font-bold text-muted">Sold out</p>
+          ) : (
+            <>
+              <a
+                href={buy.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`${btn} inline-flex items-center justify-center`}
+                onClick={() => setClicked((c) => new Set(c).add(e.id))}
+              >
+                {buy.price ? `Buy ticket · ${buy.price}` : "Buy ticket"}
+              </a>
+              {onPurchased && clicked.has(e.id) && (
+                <button type="button" className="btn btn-secondary btn-sm mt-2 w-full" onClick={() => onPurchased(e.id)}>
+                  I bought it
+                </button>
+              )}
+            </>
+          )
+        ) : (
+          <>
+            <a href={postUrl} target="_blank" rel="noopener noreferrer" className={`${btn} inline-flex items-center justify-center`}>
+              Open post
+            </a>
+            <p className="mt-1 text-center text-xs text-muted">No sign-up link found</p>
+          </>
+        );
         const meta = [d?.time, e.price].filter(Boolean).join(" · ");
 
         if (compact) {
@@ -86,6 +138,8 @@ export function EventCards({ events, enrollments = {}, consent, compact, toolCal
               <p className="mt-0.5 font-bold leading-snug">{e.title}</p>
               {s ? (
                 <p className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${s.cls}`}>{s.text}</p>
+              ) : direct ? (
+                directAction
               ) : canEnroll ? (
                 <button type="button" className="btn btn-primary btn-sm mt-2 w-full" onClick={() => enroll(e.id)}>
                   {label}
@@ -146,6 +200,7 @@ export function EventCards({ events, enrollments = {}, consent, compact, toolCal
                 </p>
               )}
               {meta && <p className="pl-[26px] text-muted">{meta}</p>}
+              {e.signup_hint && <p className="pl-[26px] text-xs text-muted">{e.signup_hint}</p>}
             </div>
 
             {e.match_reason && (
@@ -162,6 +217,8 @@ export function EventCards({ events, enrollments = {}, consent, compact, toolCal
                 <p role="status" className={`rounded-full px-4 py-3 text-center text-sm font-bold ${s.cls}`}>
                   {s.text}
                 </p>
+              ) : direct ? (
+                directAction
               ) : (
                 <button
                   type="button"
@@ -173,20 +230,17 @@ export function EventCards({ events, enrollments = {}, consent, compact, toolCal
                   {label}
                 </button>
               )}
-              {!s && !canEnroll && (
+              {!s && !direct && !canEnroll && (
                 <p id={`wait-${e.id}`} className="mt-2 text-center text-xs text-muted">
                   Ask your scout to enroll you in this one.
                 </p>
               )}
               <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 text-sm font-semibold">
-                <a
-                  href={e.source_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex min-h-11 items-center underline decoration-line-strong underline-offset-4 hover:decoration-ink"
-                >
-                  View original post
-                </a>
+                {!(openPost && postUrl === e.source_url) && (
+                  <a href={e.source_url} target="_blank" rel="noopener noreferrer" className={LINK_CLS}>
+                    View original post
+                  </a>
+                )}
                 {mapsQuery(e) && (
                   <a
                     href={mapsOpenUrl(mapsQuery(e)!)}

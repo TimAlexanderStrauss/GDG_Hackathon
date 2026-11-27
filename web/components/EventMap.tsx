@@ -48,6 +48,8 @@ export function EventMap({ events, enrollments = {} }: { events: Event[]; enroll
                 <span className="mt-0.5 block font-bold leading-snug">{e.title}</span>
                 <span className="mt-0.5 block text-sm text-muted">{mapsQuery(e)}</span>
                 {status === "registered" && <span className="mt-1 block text-xs font-bold">✓ You&apos;re registered</span>}
+                {status === "purchased" && <span className="mt-1 block text-xs font-bold">✓ Ticket bought</span>}
+                {status === "not_needed" && <span className="mt-1 block text-xs font-bold">✓ No sign-up needed</span>}
               </button>
             </li>
           );

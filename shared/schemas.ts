@@ -2,6 +2,15 @@
 
 export type Platform = "instagram" | "tiktok" | "web";
 
+export type SignupKind = "none" | "google_form" | "web_form" | "tickets" | "message" | "link_in_bio" | "unknown";
+
+export interface TicketOffer {
+  url: string;
+  price: string | null;
+  availability: "available" | "sold_out" | "unknown";
+  checked_at: string; // ISO 8601
+}
+
 export interface UserProfile {
   user_id: string;
   display_name: string;
@@ -23,14 +32,16 @@ export interface Event {
   platform: Platform;
   source_url: string;
   registration_url: string | null;
-  enrollment_mode: "auto" | "manual" | "unknown";
+  signup: SignupKind;
+  signup_hint: string;
+  ticket: TicketOffer | null;
   match_score: number;
   match_reason: string;
 }
 
 export interface EnrollmentResult {
   event_id: string;
-  status: "registered" | "manual" | "failed";
+  status: "registered" | "purchased" | "not_needed" | "manual" | "failed";
   message: string;
   link: string | null;
   calendar_link: string | null;

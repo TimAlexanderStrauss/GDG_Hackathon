@@ -8,6 +8,9 @@ from typing import Literal
 from pydantic import BaseModel, HttpUrl
 
 Platform = Literal["instagram", "tiktok", "web"]
+# How you get into an event. Code sets the final value, the curator LLM only proposes it (PLAN.md, section 3).
+# link_in_bio is an intermediate value: the resolver step replaces it.
+SignupKind = Literal["none", "google_form", "web_form", "tickets", "message", "link_in_bio", "unknown"]
 
 
 class UserProfile(BaseModel):
@@ -29,6 +32,15 @@ class SocialPost(BaseModel):
     text: str
     posted_at: datetime
     location: str | None = None
+    author_bio_url: HttpUrl | None = None  # bio link of the account, from the data provider
+
+
+class TicketOffer(BaseModel):
+    """Read by the resolver from the shop page (schema.org JSON-LD), never from the post or an LLM."""
+    url: HttpUrl  # shop page for this event
+    price: str | None = None  # e.g. "10.00 EUR"
+    availability: Literal["available", "sold_out", "unknown"] = "unknown"
+    checked_at: datetime
 
 
 class Event(BaseModel):
@@ -42,7 +54,9 @@ class Event(BaseModel):
     platform: Platform
     source_url: HttpUrl
     registration_url: HttpUrl | None = None
-    enrollment_mode: Literal["auto", "manual", "unknown"] = "unknown"  # auto = Google Form
+    signup: SignupKind = "unknown"
+    signup_hint: str = ""  # quote from the post, e.g. "Eintritt 10 € an der Kasse"
+    ticket: TicketOffer | None = None
     match_score: float = 0.0  # 0..1
     match_reason: str = ""  # "Matches: AI, evenings, Münster"
 
@@ -57,7 +71,7 @@ class EnrollmentRequest(BaseModel):
 
 class EnrollmentResult(BaseModel):
     event_id: str
-    status: Literal["registered", "manual", "failed"]
+    status: Literal["registered", "purchased", "not_needed", "manual", "failed"]
     message: str  # confirmation or step-by-step instructions
     link: HttpUrl | None = None
     calendar_link: str | None = None  # Google Calendar template link

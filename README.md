@@ -4,7 +4,7 @@
 
 Sidequest is a multi-agent system that finds local events on social media and signs you up for them. Agents read public posts from Instagram, TikTok and the web, rank the events against your interests and show them as cards in a web app. When you click **Enroll me**, a separate enrollment agent fills in the event's Google Form for you. If the event has no form, you get step-by-step instructions, a ready-to-send message and a calendar link.
 
-We built it at the DevFest Münster 2026 Agentic AI Hackathon with Google ADK and Gemini. The detailed plan and the team split are in [PLAN.md](PLAN.md).
+We built it at the DevFest Münster 2026 Agentic AI Hackathon with Google ADK and Gemini. The plan for the next steps is in [PLAN.md](PLAN.md).
 
 ## The problem
 

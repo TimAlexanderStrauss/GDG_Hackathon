@@ -32,14 +32,39 @@ def instagram() -> list[dict]:
     items = _run("apify~instagram-hashtag-scraper", {"hashtags": IG_TAGS, "resultsType": "posts", "resultsLimit": 30})
     # venue-only location names ("Sputnikhalle") would fail the server's city filter, the curator checks the city
     return [{"platform": "instagram", "url": i.get("url"), "text": i.get("caption") or "", "posted_at": i.get("timestamp"),
-             "location": loc if (loc := i.get("locationName")) and any(c in loc.lower() for c in CITY_NAMES) else None}
+             "location": loc if (loc := i.get("locationName")) and any(c in loc.lower() for c in CITY_NAMES) else None,
+             "owner": i.get("ownerUsername")}  # popped in main(): bio links are fetched only for the posts select keeps
             for i in items]
+
+
+def _link(v) -> str | None:
+    return v if isinstance(v, str) and v.startswith(("https://", "http://")) else None  # junk would fail SocialPost validation
+
+
+def bio_links(owners: list[str]) -> dict[str, str]:
+    """username -> bio link (externalUrl of apify~instagram-profile-scraper). Failure = no links, never an abort."""
+    if not owners:
+        return {}
+    try:
+        items = _run("apify~instagram-profile-scraper", {"usernames": owners})
+    except (httpx.HTTPError, ValueError) as e:
+        print(f"instagram profiles: failed ({type(e).__name__}), posts keep no bio link")
+        return {}
+    return {i["username"]: u for i in items if i.get("username") and (u := _link(i.get("externalUrl")))}
 
 
 def tiktok() -> list[dict]:
     items = _run("clockworks~tiktok-scraper", {"hashtags": TT_TAGS, "resultsPerPage": 30})
     return [{"platform": "tiktok", "url": i.get("webVideoUrl"), "text": i.get("text") or "",
-             "posted_at": i.get("createTimeISO"), "location": None} for i in items]
+             "posted_at": i.get("createTimeISO"), "location": None,
+             "author_bio_url": _link((i.get("authorMeta") or {}).get("bioLink"))} for i in items]
+
+
+def add_bio_links(chosen: list[SocialPost], raw: list[dict]) -> list[SocialPost]:
+    owner_of = {r.get("url"): r.get("owner") for r in raw}
+    links = bio_links(sorted({o for p in chosen if (o := owner_of.get(str(p.url)))}))
+    return [SocialPost.model_validate({**p.model_dump(), "author_bio_url": u}) if (u := links.get(owner_of.get(str(p.url)))) else p
+            for p in chosen]
 
 
 def select(raw: list[dict], today: date) -> list[SocialPost]:
@@ -68,6 +93,8 @@ def main() -> None:
             print(f"{source.__name__}: failed ({type(e).__name__} {getattr(getattr(e, 'response', None), 'status_code', '')})")
             continue
         chosen = select(raw, date.today())
+        if source is instagram:
+            chosen = add_bio_links(chosen, raw)
         print(f"{source.__name__}: {len(raw)} fetched, {len(chosen)} kept")
         posts += chosen
     if not posts:

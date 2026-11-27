@@ -24,7 +24,7 @@ async def main():
     for a in state["audit"]:
         print("audit:", a["agent"], "-", a["note"])
     for e in state["events"]:
-        print(f"{e['match_score']:.2f} {e['enrollment_mode']:7} {e['start']}  {e['title']}  ({e['match_reason']})")
+        print(f"{e['match_score']:.2f} {e['signup']:11} {e['start']}  {e['title']}  ({e['match_reason']})")
     await event_sources.close()
 
 

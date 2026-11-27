@@ -149,5 +149,16 @@ def search_posts(platform: Platform, city: str, hashtags: list[str], days_ahead:
     return SearchResult(posts=clean, blocked=sum(verdicts), note=NOTE)
 
 
+@server.tool()
+def resolve_signup(url: str, title: str = "", start: str = "") -> dict:
+    """Find the real sign-up path behind an event link (event page, ticket shop or bio-link page).
+
+    start: ISO datetime of the event or "". Returns {"signup": "tickets"|"web_form"|"unknown", "ticket": {...}|None,
+    "registration_url": ...|None, "note": ...}. Reads only structured data; never raises.
+    """
+    from mcp_servers.event_sources import resolver  # lazy: resolver imports SUSPICIOUS from this module
+    return resolver.resolve_signup(url, title, start)
+
+
 if __name__ == "__main__":
     server.run()

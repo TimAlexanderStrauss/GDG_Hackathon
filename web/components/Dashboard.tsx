@@ -79,6 +79,11 @@ export function Dashboard({ profile, socials, scanRequest, onEdit }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [chatOpen]);
 
+  const markPurchased = (id: string) => {
+    const current = (agent.state ?? {}) as AgentState;
+    agent.setState({ ...current, enrollments: { ...current.enrollments, [id]: "purchased" } });
+  };
+
   const events = state.events?.length ? state.events : (pending?.events ?? []);
 
   return (
@@ -150,7 +155,12 @@ export function Dashboard({ profile, socials, scanRequest, onEdit }: Props) {
                 {view === "map" ? (
                   <EventMap events={events} enrollments={state.enrollments} />
                 ) : (
-                  <EventCards events={events} enrollments={state.enrollments} consent={profile.consent_enrollment} />
+                  <EventCards
+                    events={events}
+                    enrollments={state.enrollments}
+                    consent={profile.consent_enrollment}
+                    onPurchased={markPurchased}
+                  />
                 )}
               </>
             ) : isRunning ? (

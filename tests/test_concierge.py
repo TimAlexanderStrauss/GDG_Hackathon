@@ -78,3 +78,25 @@ def test_enroll_repairs_empty_link_from_small_model(monkeypatch):
     reply = json.dumps({"event_id": "wrong", "status": "manual", "message": "1.\n2.", "link": ""})
     result, _ = _run(_ctx(click), monkeypatch, reply)
     assert result["status"] == "manual" and result["event_id"] == click["event_id"] and result["link"]
+
+
+def _click_for(ctx, i):
+    return {"event_id": ctx.state["events"][i]["id"], "approved_at": "2026-11-21T14:05:00+01:00"}
+
+
+def test_enroll_none_is_not_needed_with_calendar_and_no_a2a(monkeypatch):
+    ctx = _ctx(None)
+    ctx.session.events.append(AdkEvent(author="user", content=types.Content(role="user", parts=[types.Part(
+        function_response=types.FunctionResponse(name="choose_event", response=_click_for(ctx, 2)))])))
+    result, calls = _run(ctx, monkeypatch)
+    assert result["status"] == "not_needed" and result["calendar_link"] and "maps" in result["link"] and calls == []
+    assert "Already handled" in asyncio.run(concierge.enroll(ctx))["error"]  # double click
+
+
+def test_enroll_unknown_is_manual_without_draft_and_a2a(monkeypatch):
+    ctx = _ctx(None)
+    ctx.state["events"][2]["signup"] = "unknown"
+    ctx.session.events.append(AdkEvent(author="user", content=types.Content(role="user", parts=[types.Part(
+        function_response=types.FunctionResponse(name="choose_event", response=_click_for(ctx, 2)))])))
+    result, calls = _run(ctx, monkeypatch)
+    assert result["status"] == "manual" and "draft" not in result["message"].lower() and calls == []
