@@ -47,7 +47,7 @@ def test_tiktok_bio_link_from_author_meta(monkeypatch):
          "authorMeta": {"bioLink": "https://example.org/a"}},
         {"webVideoUrl": "https://www.tiktok.com/@b/video/2", "text": "y", "createTimeISO": "2026-01-01T00:00:00Z",
          "authorMeta": {"bioLink": "not a url"}}])
-    a, b = fetch_live.tiktok("Münster")
+    a, b = fetch_live.tiktok("Münster", ["muensterevents"])
     assert a["author_bio_url"] == "https://example.org/a" and b["author_bio_url"] is None
 
 
@@ -146,3 +146,28 @@ def test_city_without_posts_gets_an_empty_cache_but_all_failed_raises(monkeypatc
     with pytest.raises(RuntimeError):
         f.fetch("Greven")
     assert not (tmp_path / "greven.json").exists()  # retried on the next scan
+
+
+def test_interest_tags_are_fetched_with_the_city_and_add_merges(monkeypatch, tmp_path):
+    from mcp_servers.event_sources import fetch_live as f
+    from shared import store
+    monkeypatch.setattr(f, "LIVE_DIR", tmp_path)
+    monkeypatch.setenv("APIFY_TOKEN", "x")
+    monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
+    now = datetime.now(timezone.utc).isoformat()
+    calls = []
+
+    def fake_run(actor, payload):
+        calls.append(payload["hashtags"])
+        code = payload["hashtags"][0]
+        return [{"url": f"https://www.instagram.com/p/{code}/", "caption": f"Party {SOON}", "timestamp": now}] \
+            if "hashtag" in actor else []
+    monkeypatch.setattr(f, "_run", fake_run)
+    assert f.interest_tags("Köln", ["techno"]) == ["koelntechno"]
+    assert f.fetch("Köln", ["techno"]) == 2  # city posts and interest posts, selected separately
+    assert ["koelntechno"] in calls and store.get("fetches", "tags-koeln") == ["techno"]
+    calls.clear()
+    assert f.fetch("Köln", ["jazz"], add=True) == 3  # only the new tag is fetched, the cache is kept
+    assert calls == [["koelnjazz"], ["koelnjazz"]]
+    assert store.get("fetches", "tags-koeln") == ["techno", "jazz"]
+    assert f.fetch("Köln", ["jazz"], add=True) == 3  # the same post again: no duplicate

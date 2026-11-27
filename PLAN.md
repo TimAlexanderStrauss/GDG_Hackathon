@@ -21,6 +21,10 @@
   `fixtures/live/<city>.json`. The first scan of a new city starts the fetch as a detached process (`fetch_live`,
   log in `data/fetch-<city>.log`; max. 5 per day, 10 min pause after a failed fetch, bookkeeping in `data/cache.db`;
   a city without posts is cached as empty).
+- **Interest tags in the live fetch.** The scouts choose hashtags from the interests in the city's language; the fetch
+  adds city+interest hashtags (`muenstertechno`) and one Firecrawl search per tag set. New tags on a fresh cache start an
+  `--add` fetch (merged into the cache, counts to the daily limit); a full refresh takes up to 6 known tags per city.
+  Not verified live yet.
 - **Shared event catalog.** Events are extracted once per post and shared by all users (`data/cache.db`); per scan only
   the ranking for the user's interests runs. Guard verdicts and resolver results are cached there too.
 - **Sign-up kinds** (section 3) with the resolver (JSON-LD, Firecrawl fallback for shops like Eventim) and one card

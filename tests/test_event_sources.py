@@ -59,7 +59,7 @@ def live(monkeypatch, tmp_path):
     monkeypatch.setattr(fetch_live, "LIVE_DIR", tmp_path)
     monkeypatch.setenv("APIFY_TOKEN", "x")
     spawned = []
-    monkeypatch.setattr(server, "_spawn", spawned.append)  # no process, no Apify
+    monkeypatch.setattr(server, "_spawn", lambda city, *a: spawned.append(city))  # no process, no Apify
     return tmp_path, spawned
 
 
@@ -143,7 +143,7 @@ def test_live_failure_marker_from_fetch_live_main_blocks_a_new_start(live, monke
     from mcp_servers.event_sources import fetch_live
     _, spawned = live
 
-    def fail(city):
+    def fail(*args):
         raise RuntimeError("All sources failed")
     monkeypatch.setattr(fetch_live, "fetch", fail)
     monkeypatch.setattr(sys, "argv", ["fetch_live", "--city", "Köln"])
@@ -169,3 +169,27 @@ def test_spawn_passes_the_city_as_one_argv_element_without_shell(monkeypatch, tm
     server._spawn("Köln; rm -rf /")
     (argv,), kw = calls[0]
     assert argv[-2:] == ["--city", "Köln; rm -rf /"] and not kw.get("shell") and kw["start_new_session"]
+    server._spawn("Köln", ["techno", "jazz"], add=True)
+    assert calls[1][0][0][-6:] == ["--city", "Köln", "--tags", "techno", "jazz", "--add"]
+
+
+def test_live_new_interest_tags_start_an_add_fetch_known_tags_do_not(live, monkeypatch):
+    import json
+    import os
+    from shared import store
+    tmp, _ = live
+    spawned = []
+    monkeypatch.setattr(server, "_spawn", lambda city, tags=(), add=False: spawned.append((city, list(tags), add)))
+    post = {"platform": "instagram", "url": "https://www.instagram.com/p/a/", "text": "Party 25.11.",
+            "posted_at": "2026-11-20T10:00:00Z", "location": "Koeln Club"}
+    f = tmp / "koeln.json"
+    f.write_text(json.dumps([post]))
+    store.put("fetches", "tags-koeln", ["techno"])
+    assert len(server.search_posts("instagram", "Köln", ["techno"], 14).posts) == 1 and spawned == []
+    assert len(server.search_posts("instagram", "Köln", ["techno", "jazz"], 14).posts) == 1  # served now
+    assert spawned == [("Köln", ["jazz"], True)]
+    store.put("fetches", "koeln", {"started": 1})  # the add run is over
+    old = time.time() - 25 * 3600
+    os.utime(f, (old, old))
+    server.search_posts("instagram", "Köln", ["kunst"], 14)
+    assert spawned[-1] == ("Köln", ["techno", "kunst"], False)  # stale: full refresh with known + new tags

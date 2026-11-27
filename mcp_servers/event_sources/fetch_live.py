@@ -5,7 +5,10 @@ Run: uv run python -m mcp_servers.event_sources.fetch_live --city "Köln"   (def
 Needs APIFY_TOKEN in .env. Takes 1-3 min and a few cents of Apify credit. Writes fixtures/live/<slug>.json
 (slug = ascii form of the city, e.g. muenster), which search_posts reads instead of the demo fixtures. The server also
 starts this fetch as a detached process when the cache of a city is missing or older than 24 h. Hashtags and the location
-filter are derived from the city name (umlaut and ascii variants). The guard still checks every post at search time.
+filter are derived from the city name (umlaut and ascii variants). Interest tags of the scouts (--tags techno lauftreff)
+add city+interest hashtags (muenstertechno) and one web search; --add fetches only those and merges them into the cache.
+The fetched interest tags of a city are kept in the store (fetches/tags-<slug>). The guard still checks every post at
+search time.
 """
 import argparse
 import json
@@ -62,8 +65,13 @@ def _run(actor: str, payload: dict) -> list[dict]:
     return r.json()
 
 
-def instagram(city: str) -> list[dict]:
-    items = _run("apify~instagram-hashtag-scraper", {"hashtags": hashtags(city)[0], "resultsType": "posts", "resultsLimit": 30})
+def interest_tags(city: str, tags: list[str]) -> list[str]:
+    """City+interest hashtags, e.g. Münster + techno -> muenstertechno (a bare #techno would be worldwide)."""
+    return [_tag(variants(city)[0]) + t for t in tags]
+
+
+def instagram(city: str, tags: list[str]) -> list[dict]:
+    items = _run("apify~instagram-hashtag-scraper", {"hashtags": tags, "resultsType": "posts", "resultsLimit": 30})
     # venue-only location names ("Sputnikhalle") would fail the server's city filter, the curator checks the city
     return [{"platform": "instagram", "url": i.get("url"), "text": i.get("caption") or "", "posted_at": i.get("timestamp"),
              "location": loc if (loc := i.get("locationName")) and any(c in loc.lower() for c in variants(city)) else None,
@@ -87,18 +95,18 @@ def bio_links(owners: list[str]) -> dict[str, str]:
     return {i["username"]: u for i in items if i.get("username") and (u := _link(i.get("externalUrl")))}
 
 
-def tiktok(city: str) -> list[dict]:
-    items = _run("clockworks~tiktok-scraper", {"hashtags": hashtags(city)[1], "resultsPerPage": 30})
+def tiktok(city: str, tags: list[str]) -> list[dict]:
+    items = _run("clockworks~tiktok-scraper", {"hashtags": tags, "resultsPerPage": 30})
     return [{"platform": "tiktok", "url": i.get("webVideoUrl"), "text": i.get("text") or "",
              "posted_at": i.get("createTimeISO"), "location": None,
              "author_bio_url": _link((i.get("authorMeta") or {}).get("bioLink"))} for i in items]
 
 
-def web(city: str) -> list[dict]:
+def web(city: str, query: str) -> list[dict]:
     """One Firecrawl v2 search (past month, 5 results, pages scraped as markdown). 2 credits + 1 per page."""
     r = httpx.post("https://api.firecrawl.dev/v2/search", timeout=120,
                    headers={"Authorization": f"Bearer {os.environ['FIRECRAWL_API_KEY']}"},
-                   json={"query": f"Events Veranstaltungen {city}", "limit": 5, "tbs": "qdr:m",  # any city: no country filter
+                   json={"query": query, "limit": 5, "tbs": "qdr:m",  # any city: no country filter
                          "scrapeOptions": {"formats": ["markdown"], "onlyMainContent": True}})
     r.raise_for_status()
     data = r.json().get("data") or []
@@ -130,18 +138,25 @@ def select(raw: list[dict], today: date) -> list[SocialPost]:
     return sorted(picked.values(), key=lambda p: p.posted_at, reverse=True)[:PER_PLATFORM]
 
 
-def fetch(city: str) -> int:
+def fetch(city: str, tags: list[str] = (), add: bool = False) -> int:
     """Fetch, select and write fixtures/live/<slug>.json (also when empty). Returns the number of posts.
+    tags: interest tags (city+tag hashtags, one web search). add: fetch only the tags, merge into the cache.
     Raises RuntimeError when no source answered."""
+    from shared import store
     if not os.getenv("APIFY_TOKEN"):
         raise RuntimeError("APIFY_TOKEN is empty in .env")
-    out = cache_path(city)
+    out, tags = cache_path(city), list(tags)
+    ig, tt = hashtags(city)
+    runs = [] if add else [(instagram, ig), (tiktok, tt), (web, f"Events Veranstaltungen {city}")]  # any city: no country filter
+    if tags:
+        it = interest_tags(city, tags)
+        runs += [(instagram, it), (tiktok, it), (web, f"Events {city} {' '.join(tags)}")]
     posts, answered = [], 0
-    for source in (instagram, tiktok, web):
+    for source, arg in runs:  # every run selects on its own: interest posts do not compete with the city posts
         if source is web and not os.getenv("FIRECRAWL_API_KEY"):
             continue
         try:
-            raw = source(city)
+            raw = source(city, arg)
         except (httpx.HTTPError, ValueError) as e:  # ValueError: bad JSON
             print(f"{source.__name__}: failed ({type(e).__name__} {getattr(getattr(e, 'response', None), 'status_code', '')})", file=sys.stderr)
             continue
@@ -153,9 +168,18 @@ def fetch(city: str) -> int:
         posts += chosen
     if not answered:
         raise RuntimeError(f"All sources failed, {out.name} unchanged")
+    if add and out.exists():
+        posts = [SocialPost.model_validate(p) for p in json.loads(out.read_text())] + posts
+    unique: dict[str, SocialPost] = {}
+    for p in posts:
+        unique.setdefault(str(p.url), p)  # one post per URL, the cached one wins
+    posts = list(unique.values())
     # an empty list is written too: a small city with no posts is known for 24 h instead of a new Apify run per scan
+    # shortcut: an --add run renews the file time, so the city posts can get up to 48 h old; fine while adds are rare
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps([p.model_dump(mode="json") for p in posts], ensure_ascii=False, indent=1))
+    known = (store.get("fetches", f"tags-{slug(city)}") or []) if add else []
+    store.put("fetches", f"tags-{slug(city)}", list(dict.fromkeys(known + tags)))
     print(f"wrote {len(posts)} posts to {out}", file=sys.stderr)
     return len(posts)
 
@@ -163,9 +187,12 @@ def fetch(city: str) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--city", default="Münster")
-    city = ap.parse_args().city
+    ap.add_argument("--tags", nargs="*", default=[])
+    ap.add_argument("--add", action="store_true")
+    args = ap.parse_args()
+    city = args.city
     try:
-        fetch(city)
+        fetch(city, args.tags, args.add)
     except Exception as e:  # the detached run has no caller: leave a marker the server reads (never print e, token)
         from shared import store
         key = slug(city)
