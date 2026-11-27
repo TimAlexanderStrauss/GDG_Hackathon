@@ -1,4 +1,5 @@
-"""Run the scout pipeline once with the demo persona (real Gemini + MCP). uv run python -m agents.scouts.smoke"""
+"""Run the scout pipeline once with the demo persona (real Gemini + MCP). uv run python -m agents.scouts.smoke
+With DEMO_MODE=live it reads fixtures/live_posts.json and prints the share of `unknown` (PLAN.md phase 2)."""
 import asyncio
 
 from dotenv import load_dotenv
@@ -25,6 +26,8 @@ async def main():
         print("audit:", a["agent"], "-", a["note"])
     for e in state["events"]:
         print(f"{e['match_score']:.2f} {e['signup']:11} {e['start']}  {e['title']}  ({e['match_reason']})")
+    kinds = [e["signup"] for e in state["events"]]  # PLAN.md phase 2 target: unknown below 10 %
+    print(f"unknown: {kinds.count('unknown')}/{len(kinds)}", {k: kinds.count(k) for k in sorted(set(kinds))})
     await event_sources.close()
 
 

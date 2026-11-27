@@ -8,8 +8,8 @@ The hackathon is over. Development continues without a deadline and without fixe
 - The guard fails closed: when it is not available, no post goes through.
 - mcp 2.x: `from mcp.server.mcpserver import MCPServer` (`FastMCP` no longer exists). Do not create a folder `mcp/`, it would shadow the package.
 - Add dependencies only with `uv add` (web: `npm install` in `web/`). Run tests with `uv run pytest`. Web checks: `npx tsc --noEmit` and `npm run lint` in `web/`.
-- No costs: development uses only free tiers (Gemini API free tier, Apify free plan with 5 USD credit per month). No paid service and no Google Cloud billing without the human's approval.
-- API quota is small: tests run offline (mock Gemini, Apify, Model Armor and the network). Run live calls (smoke runs, `fetch_live`, scans) only when the human asks, and as few as possible.
+- No costs: development uses only free tiers (UniGPT of Uni Münster via `LLM_MODEL`, Gemini API free tier as fallback, Apify free plan with 5 USD credit per month, Firecrawl free credits). No paid service and no Google Cloud billing without the human's approval.
+- API quota is small: tests run offline (mock the LLM, Apify, Firecrawl, Model Armor and the network). Run live calls (smoke runs, `fetch_live`, scans) only when the human asks, and as few as possible.
 - Secrets only in `.env`: never commit them, never print them, never write them to logs. `DEMO_MODE=fixtures` is the default.
 - Real third-party posts (`fixtures/live_posts.json`) stay out of git and out of test fixtures. Tests use fictional posts.
 - Smallest working solution, no extras.

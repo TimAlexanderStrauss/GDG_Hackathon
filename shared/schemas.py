@@ -55,7 +55,7 @@ class Event(BaseModel):
     source_url: HttpUrl
     registration_url: HttpUrl | None = None
     signup: SignupKind = "unknown"
-    signup_hint: str = ""  # quote from the post, e.g. "Eintritt 10 € an der Kasse"
+    signup_hint: str = ""  # quote from the post, e.g. "Eintritt 10 € an der Kasse", or the resolver's NO_PRESALE note
     ticket: TicketOffer | None = None
     match_score: float = 0.0  # 0..1
     match_reason: str = ""  # "Matches: AI, evenings, Münster"

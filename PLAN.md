@@ -161,10 +161,35 @@ Each phase gives a usable state. Size: S = up to 1 day, M = 2–4 days, L = 1 we
 > Status 2026-11-23: Phase 1 is done. Phase 2 is done except for these points:
 > - The resolver step is a second `after_agent_callback` of the curator, not a separate `BaseAgent`.
 > - The LLM fallback for pages without JSON-LD is not built: JSON-LD only, no Gemini cost.
-> - The hint "No presale found" is not built.
 > - `fetch_live.py` has not run with the profile scraper yet.
 > - Measurement: 16 of 17 cached live posts have no link in the text, so the resolver needs `author_bio_url`
 >   (run `fetch_live` again). rausgegangen.de answers 403 to the resolver.
+>
+> Status 2026-11-27: The hint "No presale found" is built (`NO_PRESALE`, for every `none` event without a quote).
+> `DEMO_MODE=live uv run python -m agents.scouts.smoke` prints the share of `unknown`.
+>
+> Measurement 2026-11-27 (`fetch_live` with profile scraper: 13 posts, 4 with a bio link, 0 with a link in the text;
+> smoke run with `GUARD=gemini`): 3 events, **1 `unknown` (33 %)**, 2 `none`. The sample is too small for the 10 % target.
+> The `unknown` event has a bio link directly to its Eventim event page, but Eventim blocks the resolver (timeout; with a
+> browser user agent only a 3 KB bot page without JSON-LD). A manual Firecrawl test read the page: "Kategorie 1 € 19,15, available".
+> Model Armor needs a billing account linked to the GCP project; until then `GUARD=gemini`.
+>
+> Built 2026-11-27: the LLM fallback of the resolver, via Firecrawl (`FIRECRAWL_API_KEY`, optional). When the plain
+> fetch fails (403, timeout) or finds no JSON-LD, Firecrawl renders the page (1 credit, max. 10 pages per hour). Code
+> checks title tokens and date on the page, the guard checks the text, Gemini proposes price and availability, and code
+> keeps the price only if it is written on the page next to € or EUR. URLs that fail the https / public IP check never
+> go to Firecrawl. Open: Eventim and similar shops probably forbid automated access in their terms (see "Before Phase 5");
+> the official way is a partner or affiliate feed.
+>
+> Measurement 2 (2026-11-27, with Firecrawl): 3 events, 1 `tickets` (Date My Friend, 19.15 EUR from Eventim), 1 `none`,
+> **1 `unknown` (33 %)**. The `unknown` is a TikTok post "Tickets: Link in Bio" whose author has no bio link in the
+> Apify data (TikTok gives `bioLink` only for some accounts). Idea, not built: the post mentions an Instagram handle of
+> the organizer; its bio link could come from the Instagram profile scraper (Apify cost).
+>
+> Measurement 3 (2026-11-27, UniGPT DeepSeek-V4-Flash for all LLM calls): 4 events, 1 `tickets`, 2 `none`,
+> **1 `unknown` (25 %)** (the TikTok post without a bio link). The resolver notes are in the audit log now. One run
+> before gave `unknown` for the Eventim event with no visible reason (notes were not logged yet). Seen: linktr.ee
+> answers 406 to the plain fetch, Firecrawl renders it, but the resolver does not follow links from rendered pages.
 
 ### Phase 3 – Real users and real data · M–L
 
@@ -172,7 +197,8 @@ Needed before agents send real sign-ups to real organizers. You can build Phase 
 
 - [ ] Google OAuth sign-in (real name and email). Keep the other providers only as "demo" or remove them.
 - [ ] Persistent storage: ADK `DatabaseSessionService` (SQLite first, Cloud SQL or Firestore later). One table for enrollments and purchases, with the proof (`approved_at`, screenshot, confirmation).
-- [ ] Paid Gemini tier or Vertex AI. On the free tier, Google can use the data.
+- [ ] *Postponed (decision 2026-11-27: free tiers only):* Paid Gemini tier or Vertex AI. On the free tier, Google
+  can use the data. Until then: only the developer's own data and fictional test data, no other real users.
 - [ ] One env file per process (least privilege, open point from the README).
 - [ ] Consent levels in the profile: "free sign-ups after my click" (default on), "ask me before every payment" (always on). Privacy notice, "delete my data".
 - [ ] Live scan per request instead of the offline cache: Apify run on demand, cached, with a cost limit per user.
@@ -189,6 +215,39 @@ Needed before agents send real sign-ups to real organizers. You can build Phase 
 - [ ] Cart total check against the confirmed price. Stop at the payment step.
 - [ ] Legal check before public use: terms of the ticket shops (automation), § 312j BGB, personalized tickets, refunds.
 - [ ] Evaluate stage C: which ticket shops in Germany support AP2, UCP or a partner API? Ask shops for partner access.
+
+#### Before Phase 5: points to consider
+
+Legal (check before the first real purchase, not legal advice):
+- **§ 312j BGB:** the consumer clicks the order button. The agent stops before it, always.
+- **No right of withdrawal:** for leisure events on a fixed date there is no 14-day withdrawal (§ 312g (2) no. 9 BGB).
+  A wrong purchase cannot be undone. The confirmation before the hand-off must show event, date, count, ticket type
+  and total clearly.
+- **Terms of the ticket shops:** many shops forbid bots or automated access. Check each shop before the agent opens it.
+  A shop that forbids it stays at stage A (deep link).
+- **Personalized tickets:** the name on the ticket must be the attendee. Tickets for friends = data of third persons.
+- **GDPR:** the agent gives name and email to the shop. Screenshots in the audit log contain personal data: how long
+  are they kept, who can see them.
+- **Liability:** who pays if the agent selects the wrong ticket type or count. Until this is clear: personal use only.
+
+Technical:
+- **Total check:** compare the cart total with the confirmed price including service fee and shipping. Define the
+  tolerance (proposal: 0 €, every difference stops the agent).
+- **Price changes and sold out** between the card (`checked_at`) and the checkout: stop, show the new price, ask again.
+- **Waiting rooms, captchas, queues, reservation timers:** stop and hand over, never solve them.
+- **Shop login or account creation:** the user does it in the live browser. The agent does not store passwords or
+  cookies.
+- **Payment hosts:** an allowlist of payment provider hosts for the hand-off. The agent never acts on a payment page.
+- **Test target:** pretix (open source, has a test mode) before any real shop.
+
+Decisions for the human:
+1. Stage B at all, or stage A (deep link) only until a shop gives partner access.
+2. Browser hand-off: local headed Chrome (free, only for the developer) or a cloud browser with a live view (costs
+   money, needed for other users). With the free-tier rule: local only.
+3. Which shops first (the shops in the live data, after their terms are checked).
+4. Tolerance of the total check.
+5. Ticket count: one ticket for the user only, or also tickets for friends.
+6. Stage C: build it only when a German shop supports AP2, UCP or a partner API.
 
 ### Phase 6 – "Sign me up for all" · M
 
@@ -220,10 +279,14 @@ Everything from the hackathon stays: injection guard in the MCP server (fail clo
 
 ## 7. Open decisions
 
-- **Team:** continue as 4 people, or alone? This plan has no owners. `CLAUDE.md` is updated for the time after the hackathon (no deadline, no packages, no costs).
-- **Budget per month:** paid Gemini tier, Apify per scan, a cloud browser.
-- **Browser hand-off:** local headed Chrome (simple, only for you) or a cloud browser with a live view (needed for other users).
-- **Legal risk:** assisted checkout on third-party ticket shops, or only deep links until a shop gives partner access.
+- ~~**Team**~~ Decided 2026-11-27: one developer continues alone. The plan has no owners.
+- ~~**Budget per month**~~ Decided 2026-11-27: free tiers only (Gemini API free tier, Apify free plan). No paid
+  Gemini, no Vertex AI, no cloud browser. Consequence: no real personal data of other users (Phase 3), Phase 7 waits.
+- ~~**LLM provider**~~ Decided 2026-11-27: UniGPT (Uni Münster, OpenAI-compatible, 30 requests/min, key valid until
+  2027-11-27), model `DeepSeek-V4-Flash` for all calls. Switch: `LLM_MODEL` / `LLM_SMALL_MODEL` in `.env`
+  (`shared/llm.py`, LiteLLM); `gemini-...` still works as fallback. Open: check the UniGPT terms of use before other
+  users use the app. If UniGPT keeps the data at the university, the free-tier data concern of Phase 3 is gone for LLM calls.
+- **Browser hand-off and legal risk:** see "Before Phase 5: points to consider" in section 5.
 - **Region:** only Münster, or more cities (the sign-in screen now says "your region").
 
 ## 8. Accounts and keys for the next phases

@@ -10,6 +10,7 @@ dependencies = [
     "apify-client>=3.5",            # only DEMO_MODE=live
     "httpx",                        # Google Form submit
     "python-dotenv",
+    "litellm>=1.111.0",
 ]
 
 [project.optional-dependencies]

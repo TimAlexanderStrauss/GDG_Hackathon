@@ -11,7 +11,7 @@ def run(posts, **curated_overrides):
     curated = [{"id": "", "title": "Event " + url[-1], "venue": "Hafen", "city": "Münster", "platform": "instagram",
                 "source_url": url, "start": "2026-11-28T23:00:00+01:00", "match_score": 0.5,
                 **curated_overrides.get(url, {})} for url in posts]
-    state = {"temp:posts_instagram": [{"url": u, "text": t} for u, t in posts.items()], "temp:curated": curated}
+    state = {"temp:posts_instagram": [{"url": u, "text": t} for u, t in posts.items()], "temp:curated": {"events": curated}}
     _finalize_events(SimpleNamespace(state=state))
     return state["events"]
 
@@ -84,3 +84,23 @@ def test_resolver_step_sets_tickets_web_form_and_clears_link_in_bio(monkeypatch)
     assert got["B"]["signup"] == "web_form" and got["B"]["registration_url"] == "https://reg.example/b"
     assert got["C"]["signup"] == "unknown"  # link_in_bio, nothing found
     assert got["D"]["signup"] == "message" and "https://bio.example/d" not in calls  # final kinds are not resolved
+
+
+def test_none_without_presale_gets_note_but_keeps_quote(monkeypatch):
+    import asyncio
+    from agents.scouts import agent
+    monkeypatch.setattr(agent, "resolve_signup", lambda *a: {"signup": "unknown"})
+    events = [{"id": k, "title": k, "platform": "instagram", "source_url": f"https://www.instagram.com/p/{k}/",
+               "signup": kind, "signup_hint": hint}
+              for k, kind, hint in [("A", "none", ""), ("B", "none", "Eintritt frei"), ("C", "unknown", "")]]
+    state = {"temp:posts_instagram": [], "events": events}
+    asyncio.run(agent._resolve_signups(SimpleNamespace(state=state)))
+    assert [e["signup_hint"] for e in state["events"]] == [agent.NO_PRESALE, "Eintritt frei", ""]
+
+
+def test_scout_skip_is_decided_in_code():
+    from agents.scouts.agent import _skip_unselected
+    ctx = lambda name, profile: SimpleNamespace(agent_name=name, state={"profile": profile})  # noqa: E731
+    assert _skip_unselected(ctx("tiktok_scout", {"platforms": ["instagram"]})).parts[0].text == "skipped"
+    assert _skip_unselected(ctx("instagram_scout", {"platforms": ["instagram"]})) is None
+    assert _skip_unselected(ctx("tiktok_scout", {"city": "Münster"})) is None  # no platforms field = all

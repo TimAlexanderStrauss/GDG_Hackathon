@@ -28,6 +28,8 @@ def web(monkeypatch):
     monkeypatch.setattr(resolver, "_transport", httpx.MockTransport(handler))
     monkeypatch.setattr(socket, "getaddrinfo", lambda h, *a, **k: [(2, 1, 6, "", ("93.184.216.34", 443))])
     resolver._cache.clear()
+    resolver._fc_calls.clear()
+    monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)  # .env may hold a real key: tests stay offline
     pages["seen"] = seen  # type: ignore
     return pages
 
@@ -119,3 +121,63 @@ def test_cache_hit_does_not_fetch_twice(web):
     web["https://a.example.org/t"] = page("event_ticket.html")
     a = resolver.resolve_signup("https://a.example.org/t", TITLE, START)
     assert resolver.resolve_signup("https://a.example.org/t", TITLE, START) is a and len(web["seen"]) == 1
+
+
+SHOP_MD = "# Nebula Night Synthwave\nSa., 05.12.2026, 20:00\n\nKategorie 1 € 19,15 inkl. Gebühren\n[In den Warenkorb](...)"
+
+
+@pytest.fixture
+def fc(web, monkeypatch):
+    """Firecrawl fallback on, with mocked Firecrawl, guard and Gemini extraction. Records the calls."""
+    calls = {"fc": [], "llm": [], "md": SHOP_MD, "offer": resolver._Offer(price="19,15", availability="available"),
+             "poisoned": False}
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
+    monkeypatch.setattr(resolver, "_firecrawl", lambda url: calls["fc"].append(url) or (calls["md"], "eventim.de"))
+    monkeypatch.setattr(resolver, "_extract", lambda md, title: calls["llm"].append(md) or calls["offer"])
+    monkeypatch.setattr(resolver, "is_poisoned", lambda text: calls["poisoned"])
+    web["https://shop.example.org/e"] = (403, {})
+    return calls
+
+
+def test_blocked_shop_falls_back_to_rendered_page(fc):
+    r = resolver.resolve_signup("https://shop.example.org/e", TITLE, START)
+    assert r["signup"] == "tickets" and r["ticket"]["price"] == "19.15 EUR" and r["ticket"]["availability"] == "available"
+    assert r["ticket"]["url"] == "https://shop.example.org/e" and fc["fc"] == ["https://shop.example.org/e"]
+
+
+def test_rendered_price_must_be_on_the_page_with_currency(fc):
+    fc["offer"] = resolver._Offer(price="9,99", availability="available")  # LLM invents a price
+    assert resolver.resolve_signup("https://shop.example.org/e", TITLE, START)["signup"] == "unknown"
+    resolver._cache.clear()
+    fc["md"], fc["offer"] = SHOP_MD.replace("€ 19,15", "19,15"), resolver._Offer(price="19,15", availability="available")
+    assert resolver.resolve_signup("https://shop.example.org/e", TITLE, START)["signup"] == "unknown"  # no currency
+
+
+def test_rendered_page_of_another_event_skips_llm(fc):
+    assert resolver.resolve_signup("https://shop.example.org/e", TITLE, "2026-12-06T20:00:00")["signup"] == "unknown"
+    assert fc["fc"] and not fc["llm"]
+
+
+def test_poisoned_rendered_page_skips_llm(fc):
+    fc["poisoned"] = True
+    r = resolver.resolve_signup("https://shop.example.org/e", TITLE, START)
+    assert r["signup"] == "unknown" and r["note"].startswith("blocked") and not fc["llm"]
+
+
+def test_unsafe_url_never_goes_to_firecrawl(fc, monkeypatch):
+    assert resolver.resolve_signup("http://shop.example.org/e", TITLE, START)["signup"] == "unknown"
+    monkeypatch.setattr(socket, "getaddrinfo", lambda h, *a, **k: [(2, 1, 6, "", ("10.0.0.1", 443))])
+    assert resolver.resolve_signup("https://shop.example.org/e", TITLE, START)["signup"] == "unknown"
+    assert not fc["fc"]
+
+
+def test_firecrawl_hourly_limit(fc):
+    for i in range(resolver.FC_PER_HOUR + 2):
+        resolver.resolve_signup("https://shop.example.org/e", TITLE, f"2026-12-05T{i:02d}:00:00")  # new cache key
+    assert len(fc["fc"]) == resolver.FC_PER_HOUR
+
+
+def test_no_key_no_firecrawl(fc, monkeypatch):
+    monkeypatch.delenv("FIRECRAWL_API_KEY")
+    r = resolver.resolve_signup("https://shop.example.org/e", TITLE, START)
+    assert r["signup"] == "unknown" and r["note"] == "not resolved: HTTP 403" and not fc["fc"]

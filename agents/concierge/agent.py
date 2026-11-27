@@ -15,12 +15,11 @@ load_dotenv()  # before the scouts import: they read GEMINI_MODEL at import time
 from ag_ui_adk import AGUIToolset
 from google.adk.agents import LlmAgent
 from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, RemoteA2aAgent
-from google.adk.models import Gemini
 from google.adk.tools import AgentTool, ToolContext
-from google.genai import types
 from pydantic import ValidationError
 
 from agents.enrollment.agent import make_calendar_link
+from shared.llm import agent_model
 from shared.schemas import EnrollmentRequest, EnrollmentResult, Event
 
 ENROLLMENT_A2A_URL = os.getenv("ENROLLMENT_A2A_URL") or "http://localhost:8001"
@@ -99,8 +98,9 @@ def _short_result(event: dict) -> EnrollmentResult | None:
     if kind == "none":
         start = datetime.fromisoformat(event["start"]) if event.get("start") else None
         when = f"When: {start:%a %d.%m.%Y, %H:%M}\n" if start else ""
-        price = event.get("price") or event.get("signup_hint")
-        msg = f"{when}Where: {where}\n" + (f"Price: {price}\n" if price else "") + "No sign-up needed, just go."
+        price, hint = event.get("price"), event.get("signup_hint")
+        msg = (f"{when}Where: {where}\n" + (f"Price: {price}\n" if price else "") + (f"{hint}\n" if hint else "")
+               + "No sign-up needed, just go.")
         link = f"https://www.google.com/maps/search/?api=1&query={quote_plus(where)}" if where else link
         status = "not_needed"
     elif kind == "tickets":
@@ -168,8 +168,7 @@ async def enroll(tool_context: ToolContext) -> dict:
 
 root_agent = LlmAgent(
     name="concierge",
-    model=Gemini(model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
-                 retry_options=types.HttpRetryOptions(attempts=3)),
+    model=agent_model(),
     description="Finds events on social media that match the user's profile and enrolls the user on request.",
     instruction="""You are Event Scout, a friendly concierge for local events. Answer in the user's language.
 User profile: {profile?}
