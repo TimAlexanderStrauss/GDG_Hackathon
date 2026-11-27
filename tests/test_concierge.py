@@ -166,3 +166,46 @@ def test_confirmation_for_another_event_is_ignored(monkeypatch):
     _answer(ctx, "confirm_submit", {"event_id": "other", "confirmed_at": "2026-11-21T14:06:00+01:00"})
     asyncio.run(concierge.enroll(ctx))
     assert calls[1]["confirmed_at"] is None
+
+
+def _pctx(profile=None):
+    return SimpleNamespace(state={"profile": dict(PROFILE if profile is None else profile, interests=["AI"], city="Münster", days_ahead=14)})
+
+
+def test_update_profile_writes_state_and_audit():
+    ctx = _pctx()
+    out = concierge.update_profile(ctx, city="  Dortmund ", interests=["AI", " Techno", "techno", "ai"], days_ahead=7)
+    assert out["ok"] and out["profile"] == {"city": "Dortmund", "interests": ["AI", "Techno"], "days_ahead": 7}
+    p = ctx.state["profile"]
+    assert (p["city"], p["interests"], p["days_ahead"]) == ("Dortmund", ["AI", "Techno"], 7)
+    assert p["display_name"] == "Lea" and p["email"] == "lea@example.com" and p["consent_enrollment"] is True
+    assert ctx.state["audit"][-1]["tool"] == "update_profile"
+
+
+def test_update_profile_partial_keeps_other_fields():
+    ctx = _pctx()
+    assert concierge.update_profile(ctx, days_ahead=30)["ok"]
+    assert ctx.state["profile"]["city"] == "Münster" and ctx.state["profile"]["interests"] == ["AI"]
+
+
+def test_update_profile_invalid_changes_nothing():
+    for kw in ({"city": "x" * 61}, {"city": "  "}, {"interests": [f"i{n}" for n in range(13)]}, {"interests": []},
+               {"interests": ["x" * 41]}, {"days_ahead": 0}, {"days_ahead": 61}, {"days_ahead": True}, {}):
+        ctx = _pctx()
+        before = json.dumps(ctx.state["profile"])
+        assert "error" in concierge.update_profile(ctx, **kw)
+        assert json.dumps(ctx.state["profile"]) == before and "audit" not in ctx.state
+    # valid city does not apply when interests are invalid
+    ctx = _pctx()
+    assert "error" in concierge.update_profile(ctx, city="Bonn", days_ahead=99)
+    assert ctx.state["profile"]["city"] == "Münster"
+
+
+def test_update_profile_cannot_touch_name_or_email():
+    ctx = _pctx()
+    try:
+        concierge.update_profile(ctx, email="evil@example.com")  # not a parameter
+        raise AssertionError("must reject unknown fields")
+    except TypeError:
+        pass
+    assert ctx.state["profile"]["email"] == "lea@example.com"

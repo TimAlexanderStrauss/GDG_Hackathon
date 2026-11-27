@@ -34,8 +34,8 @@ def llm(monkeypatch):
     """Mock structured(): one event per post, title "T<letter>"; records the urls it was asked about."""
     calls = []
 
-    def fake(system, user, schema, small=True):
-        assert small is False
+    def fake(system, user, schema, small=True, think=True):
+        assert small is False and think is False  # big model, no reasoning (speed)
         import json
         posts = json.loads(user.removeprefix("<posts>").removesuffix("</posts>"))
         calls.append([p["url"] for p in posts])
@@ -79,7 +79,7 @@ def test_failed_extraction_is_retried_and_noted(monkeypatch):
 def test_window_filter_keeps_start_none(monkeypatch):
     posts = [post(c) for c in "ABCD"]
     starts = {"A": "2026-11-20T20:00:00+01:00", "B": "2026-12-30T20:00:00+01:00", "C": None, "D": "2026-11-22T20:00:00+01:00"}
-    monkeypatch.setattr(agent, "structured", lambda s, u, schema, small=True: agent.Extracted(posts=[
+    monkeypatch.setattr(agent, "structured", lambda s, u, schema, small=True, think=True: agent.Extracted(posts=[
         agent.PostEvents(url=p["url"], events=[ev(p, "T" + p["url"][-2], starts[p["url"][-2]])]) for p in posts]))
     state, _ = scan(posts, days=14)
     assert sorted(e["title"] for e in state["temp:candidates"]) == ["TC", "TD"]

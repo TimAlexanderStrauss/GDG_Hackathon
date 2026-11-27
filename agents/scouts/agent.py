@@ -31,8 +31,8 @@ FORM_HOSTS = {"docs.google.com", "forms.gle"}
 RESOLVE = ("none", "unknown", "link_in_bio")  # google_form and message are final after _finalize_events
 RESOLVE_TIMEOUT = 75  # seconds for all resolver calls of one scan together (Firecrawl fallback: up to 45 s per page)
 NO_PRESALE = "No presale found, entry probably at the door"
-MODEL = agent_model()
-SCOUT_MODEL = agent_model(small=True)  # scouts only pick hashtags and make one tool call
+MODEL = agent_model(think=False)  # ranking only: no reasoning needed
+SCOUT_MODEL = agent_model(small=True, think=False)  # scouts only pick hashtags and make one tool call
 
 # One server process for all scouts. The scouts get this single read tool and nothing else.
 event_sources = McpToolset(
@@ -51,6 +51,9 @@ def _audit_search(tool, args, tool_context, tool_response):
     if tool_response.get("isError") or "posts" not in result:
         note = f"error: {(tool_response.get('content') or [{}])[0].get('text', 'unknown')}"
         s[f"temp:progress_{p}"] = {"platform": p, "status": "error", "posts": 0, "blocked": 0}
+        if "INVALID_INPUT" not in note:
+            # code ends the scout: models retry SOURCE_UNAVAILABLE in a loop (minutes of LLM calls, new Apify runs)
+            tool_context.actions.skip_summarization = True
     else:
         posts, blocked = result["posts"], result["blocked"]
         note = (f"{args.get('platform')} {args.get('city')} {args.get('days_ahead')}d "
@@ -160,8 +163,10 @@ def _norm(text: str) -> str:
 
 
 def _dedup_key(e: Event) -> tuple:
+    """(title, "", day). Venue is left out: posts write it differently ("Cuba Club" / "Cuba Club Münster").
+    shortcut: two different events with the same title on the same day merge; add a fuzzy venue match if that shows up."""
     day = e.start.astimezone(ZoneInfo("Europe/Berlin")).date() if e.start else None
-    return tuple(re.sub(r"[\W_]+", "", x.casefold()) for x in (e.title, e.venue or "")) + (day,)
+    return (re.sub(r"[\W_]+", "", e.title.casefold()), "", day)
 
 
 def _final_signup(e: Event, text: str) -> str:
@@ -195,7 +200,7 @@ def _finalize_events(events: list[Event], texts: dict[str, str]) -> list[dict]:
 def _extract_batch(batch: list[dict]) -> Extracted | None:
     posts = [{k: p.get(k) for k in ("url", "platform", "posted_at", "text")} for p in batch]
     return structured(EXTRACT_RULES.format(today=date.today()), f"<posts>{json.dumps(posts, ensure_ascii=False)}</posts>",
-                      Extracted, small=False)
+                      Extracted, small=False, think=False)
 
 
 async def _extract_events(callback_context):
@@ -243,7 +248,8 @@ async def _extract_events(callback_context):
     s["temp:candidates"] = [e.model_dump(mode="json") for e in found.values()]
     if not found:
         s["events"] = []
-        return types.Content(role="model", parts=[types.Part(text="no events")])  # skips the curator LLM
+        # skips the curator LLM; ADK still validates this text against output_schema, so it must be a valid Ranked
+        return types.Content(role="model", parts=[types.Part(text=Ranked(items=[]).model_dump_json())])
 
 
 def _curator_instruction(ctx) -> str:

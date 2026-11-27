@@ -131,3 +131,45 @@ def test_city_filter_in_code():
     assert _in_city("Münster", "Muenster") and _in_city("Münster-Hiltrup", "Münster") and _in_city(None, "Münster")
     assert not _in_city("München", "Münster") and not _in_city("Köln", "Münster")
     assert _in_city("Frankfurt am Main", "frankfurt am main")
+
+
+def test_curator_without_candidates_runs_through_adk_without_llm():
+    """Regression: the skip content is validated by ADK against output_schema Ranked ("no events" crashed the scan)."""
+    import asyncio
+
+    from google.adk.runners import InMemoryRunner
+    from google.genai import types
+
+    from agents.scouts.agent import curator
+
+    async def go():
+        runner = InMemoryRunner(agent=curator, app_name="t")
+        s = await runner.session_service.create_session(app_name="t", user_id="u",
+                                                        state={"profile": {"city": "Emsdetten", "days_ahead": 14}})
+        async for _ in runner.run_async(user_id="u", session_id=s.id,
+                                        new_message=types.Content(role="user", parts=[types.Part(text="go")])):
+            pass
+        return (await runner.session_service.get_session(app_name="t", user_id="u", session_id=s.id)).state
+    assert asyncio.run(go())["events"] == []
+
+
+def test_scout_stops_after_a_source_error_but_may_fix_invalid_input():
+    from agents.scouts.agent import _audit_search
+
+    def ctx():
+        return SimpleNamespace(agent_name="tiktok_scout", state={}, actions=SimpleNamespace(skip_summarization=False))
+    err = lambda text: {"isError": True, "content": [{"text": text}]}  # noqa: E731
+    c = ctx()
+    _audit_search(SimpleNamespace(name="search_posts"), {}, c, err("SOURCE_UNAVAILABLE: live data for X is loading"))
+    assert c.actions.skip_summarization is True  # no retry loop
+    c = ctx()
+    _audit_search(SimpleNamespace(name="search_posts"), {}, c, err("INVALID_INPUT: max. 3 hashtags"))
+    assert c.actions.skip_summarization is False  # the model may fix the input
+
+
+def test_same_event_with_differently_written_venue_is_one_event():
+    from agents.scouts.agent import Event, _dedup_key
+    a = Event(id="", title="Black Friday Vintage Pop-up", venue="Cuba Club", platform="tiktok",
+              source_url="https://x.example/1", start="2026-11-27T15:00:00+01:00")
+    b = a.model_copy(update={"venue": "Cuba Club Münster, Achtermannstraße", "source_url": "https://x.example/2"})
+    assert _dedup_key(a) == _dedup_key(b)

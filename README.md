@@ -36,7 +36,7 @@ flowchart LR
 | Concierge | `agents/concierge/` | Main agent (`LLM_MODEL`). Reads the profile from the AG-UI state, starts the scout pipeline, shows the events through the frontend tool `choose_event`, and sends an `EnrollmentRequest` over A2A after the click |
 | Scouts + curator | `agents/scouts/` | One scout per platform (`instagram`, `tiktok`, `web`), run in parallel on `LLM_SMALL_MODEL`. Each scout chooses its own hashtags and calls `search_posts` once. Extraction (`LLM_MODEL`) turns each post into events once and stores them in a shared event catalog (`shared/store.py`), so the next scan and every other user of the city reuse them. Code filters by date window and city and deduplicates; the curator (`LLM_MODEL`) only ranks the candidates for the user's interests. Code sets the sign-up kind (`none`, `google_form`, `web_form`, `tickets`, `message`, `unknown`) |
 | Resolver | `mcp_servers/event_sources/resolver.py` | Follows the link in the post or the account's bio link and finds a ticket offer or a free registration page. First schema.org JSON-LD (code only). If a shop blocks that or has no JSON-LD: Firecrawl renders the page, the guard checks it, the LLM proposes price and availability, and code keeps the price only if it is on the page |
-| LLM switch | `shared/llm.py` | `LLM_MODEL` / `LLM_SMALL_MODEL`: `gemini-...` (Gemini API) or `openai/<model>` (OpenAI-compatible endpoint such as UniGPT, through LiteLLM) |
+| LLM switch | `shared/llm.py` | `LLM_MODEL` / `LLM_SMALL_MODEL`: `gemini-...` (Gemini API) or `openai/<model>` (OpenAI-compatible endpoint such as UniGPT, through LiteLLM). `think=False` turns reasoning off for simple tasks (extraction, ranking, scouts) |
 | MCP server | `mcp_servers/event_sources/` | One tool: `search_posts(platform, city, hashtags, days_ahead)`. It validates the input, filters by platform, city and date, and checks every post for prompt injection before any LLM sees it |
 | Enrollment agent | `agents/enrollment/` | Separate process, served over A2A. Tools: `submit_google_form`, `preview_web_form` + `submit_web_form` (headless Chromium via Playwright, deterministic code, domain lock, preview → your **Submit** click → submit), `prepare_message_signup`, `make_calendar_link` |
 | Contracts | `shared/schemas.py`, `shared/schemas.ts` | `UserProfile`, `SocialPost`, `Event`, `EnrollmentRequest`, `EnrollmentResult`, AG-UI `AgentState`. `schemas.py` is the single source of truth |
@@ -76,8 +76,9 @@ The system prompt is a request. The tool set is the boundary.
   - Prepares a DM or email sign-up: message text, a link that opens the chat (`ig.me`, TikTok profile) and steps. It sends nothing itself.
   - Makes a Google Calendar "add event" link.
 - Web app: onboarding, preference import from ChatGPT, Claude or Grok (JSON), cards and map view, chat, scan progress and activity panel.
+- Change city, interests or time span in the chat ("try Dortmund instead"): tool `update_profile`, checked in code, then a new scan.
 - Live mode (`DEMO_MODE=live`): real public posts from Instagram and TikTok through Apify, cached per city in `fixtures/live/<city>.json`.
-- 60 Python tests (`uv run pytest`, offline): fixtures against the schema, MCP server and guard, sign-up rules, resolver and Firecrawl fallback, LLM switch, concierge guardrails, enrollment tools and guardrail, live fetch selection.
+- 122 Python tests (`uv run pytest`, offline; the browser tests need Chromium): fixtures against the schema, MCP server and guard, sign-up rules, resolver and Firecrawl fallback, LLM switch, concierge guardrails, enrollment tools and guardrail, live fetch selection.
 
 ### What is demo or dummy
 
@@ -87,7 +88,7 @@ The system prompt is a request. The tool set is the boundary.
 | "Connect" socials | Saves your choice only. Instagram and TikTok also select the scan sources. The concierge gets the list as a hint in the scan message. No real follows or likes are read |
 | X and Facebook | Shown as "planned". No scout reads them, and they are not in the shared `Platform` type |
 | Social data (default) | `fixtures/posts.json`: 9 fictional German posts (1 poisoned, 1 with a Google Form link, 1 in Berlin, 1 past event) |
-| Live data | Fetched offline with `fetch_live.py` (1–3 min per run), not per scan. The server ignores the hashtags for live data and filters only by platform, city and date |
+| Live data | Fetched per city (Apify + Firecrawl search), cached 24 h; a new city is fetched in the background on its first scan (1–3 min, max. 5 per day). The server ignores the scouts' hashtags and filters by platform, city and date |
 | Users and sessions | Google users get their own id (`google:<email>`, set server-side by the Next.js route), demo logins share `demo_user`. Sessions persist in SQLite (`data/sidequest.db`). The concierge trusts any caller on its port: add a shared secret before hosting |
 | Map | Keyless Google Maps embed. It shows one event at a time, not one pin per event |
 | Calendar | A Google Calendar template link with an assumed duration of 2 hours. No real calendar entry |
@@ -174,7 +175,7 @@ DEMO_MODE=live uv run python -m agents.scouts.smoke "Köln"   # city optional, d
 # 3. Full app with live data: set DEMO_MODE=live in .env and start the three processes (step 3)
 ```
 
-With `DEMO_MODE=live` the server also starts this fetch itself (background thread) when a city has no cache or the cache is older than 24 h. The first scan of a new city in the app then says the data is loading: scan again after 1-3 min. Limit: 5 fetches per day and server process. `fixtures/live/` contains real third-party posts. It is in `.gitignore`. Do not commit it. Each live post costs one guard call per scan, and each resolved link can cost one Firecrawl credit. With `FIRECRAWL_API_KEY` set, the fetch also adds a web source (Firecrawl search `Events Veranstaltungen <city>`, 5 pages as markdown, about 7 credits per city fetch: 2 for the search plus 1 per page).
+With `DEMO_MODE=live` the server also starts this fetch itself (a detached process, log in `data/fetch-<city>.log`) when a city has no cache or the cache is older than 24 h. The first scan of a new city in the app then says the data is loading: scan again after 1-3 min. Limit: 5 fetches per day and server process. `fixtures/live/` contains real third-party posts. It is in `.gitignore`. Do not commit it. Each live post costs one guard call per scan, and each resolved link can cost one Firecrawl credit. With `FIRECRAWL_API_KEY` set, the fetch also adds a web source (Firecrawl search `Events Veranstaltungen <city>`, 5 pages as markdown, about 7 credits per city fetch: 2 for the search plus 1 per page).
 
 ### Optional: Model Armor
 

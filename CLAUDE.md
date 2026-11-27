@@ -2,7 +2,8 @@
 
 The hackathon is over. Development continues without a deadline and without fixed work packages.
 
-- Plan and roadmap: `PLAN.md`. Read the phase you work on before you build. Tick its checkboxes when a step is done.
+- Plan and roadmap: `PLAN.md`. **Start a new session with section 2 (status and next steps).** Read the phase you work on before you build. Tick its checkboxes and update section 2 when a step is done.
+- Live runs (smoke, `fetch_live`, browser tests, the app) fail inside the Claude Code sandbox: the MCP subprocess gets no proxy settings and Chromium cannot start. Run them with the sandbox disabled, and only when the human agrees.
 - Contracts: `shared/schemas.py` is the single source of truth, `shared/schemas.ts` mirrors it. Change both in the same change, together with all callers and tests. If other people work in parallel, tell them before you change a contract.
 - Code decides, the LLM only proposes: values that control actions (signup kind, URLs, `approved_at`, guard verdicts) are set or checked in code. Never move such a check into a prompt.
 - The guard fails closed: when it is not available, no post goes through.

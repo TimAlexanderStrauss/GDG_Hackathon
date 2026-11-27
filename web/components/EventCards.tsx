@@ -122,10 +122,11 @@ export function EventCards({ events, enrollments = {}, consent, compact, toolCal
           )
         ) : (
           <>
+            {/* hints sit above the button, so the buttons of a card row stay on one line */}
+            <p className="mb-1 text-center text-xs text-muted">No sign-up link found</p>
             <a href={postUrl} target="_blank" rel="noopener noreferrer" className={`${btn} inline-flex items-center justify-center`}>
               Open post
             </a>
-            <p className="mt-1 text-center text-xs text-muted">No sign-up link found</p>
           </>
         );
         const meta = [d?.time, e.price].filter(Boolean).join(" · ");
@@ -214,6 +215,11 @@ export function EventCards({ events, enrollments = {}, consent, compact, toolCal
             )}
 
             <div className="mt-auto pt-5">
+              {!s && !direct && !canEnroll && (
+                <p id={`wait-${e.id}`} className="mb-2 text-center text-xs text-muted">
+                  Ask your scout to enroll you in this one.
+                </p>
+              )}
               {s ? (
                 <p role="status" className={`rounded-full px-4 py-3 text-center text-sm font-bold ${s.cls}`}>
                   {s.text}
@@ -230,11 +236,6 @@ export function EventCards({ events, enrollments = {}, consent, compact, toolCal
                 >
                   {label}
                 </button>
-              )}
-              {!s && !direct && !canEnroll && (
-                <p id={`wait-${e.id}`} className="mt-2 text-center text-xs text-muted">
-                  Ask your scout to enroll you in this one.
-                </p>
               )}
               <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 text-sm font-semibold">
                 {!(openPost && postUrl === e.source_url) && (

@@ -1,3 +1,5 @@
+import sys
+import time
 from datetime import date
 
 import pytest
@@ -56,10 +58,8 @@ def live(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "LIVE", True)
     monkeypatch.setattr(fetch_live, "LIVE_DIR", tmp_path)
     monkeypatch.setenv("APIFY_TOKEN", "x")
-    monkeypatch.setattr(server, "_running", set())
-    monkeypatch.setattr(server, "_fetches", {})
     spawned = []
-    monkeypatch.setattr(server, "_spawn", spawned.append)  # no thread, no Apify
+    monkeypatch.setattr(server, "_spawn", spawned.append)  # no process, no Apify
     return tmp_path, spawned
 
 
@@ -100,3 +100,72 @@ def test_live_daily_cap_and_missing_token(live, monkeypatch):
     monkeypatch.delenv("APIFY_TOKEN")
     with pytest.raises(ToolError, match="APIFY_TOKEN"):
         server.search_posts("instagram", "Hamburg", [], 14)
+
+
+def _new_process():
+    from shared import store
+    store._engines.clear()  # same DB file, fresh engine: what a new MCP server process sees
+
+
+def test_live_running_fetch_survives_a_new_server_process(live):
+    _, spawned = live
+    with pytest.raises(ToolError, match="is loading"):
+        server.search_posts("instagram", "Köln", [], 14)
+    _new_process()
+    with pytest.raises(ToolError, match="is loading"):
+        server.search_posts("tiktok", "Köln", [], 14)
+    assert spawned == ["Köln"]
+
+
+def test_live_dead_fetch_is_restarted_after_ten_minutes(live):
+    from shared import store
+    _, spawned = live
+    store.put("fetches", "koeln", {"started": time.time() - 700})
+    with pytest.raises(ToolError, match="is loading"):
+        server.search_posts("instagram", "Köln", [], 14)
+    assert spawned == ["Köln"]
+
+
+def test_live_daily_cap_is_counted_in_the_store(live, monkeypatch):
+    from shared import store
+    _, spawned = live
+    monkeypatch.setattr(server, "MAX_FETCHES", 1)
+    with pytest.raises(ToolError, match="is loading"):
+        server.search_posts("instagram", "Köln", [], 14)
+    assert store.get("fetches", f"day-{server.today()}") == 1
+    _new_process()
+    with pytest.raises(ToolError, match="daily limit"):
+        server.search_posts("instagram", "Berlin", [], 14)
+    assert len(spawned) == 1
+
+
+def test_live_failure_marker_from_fetch_live_main_blocks_a_new_start(live, monkeypatch):
+    from mcp_servers.event_sources import fetch_live
+    _, spawned = live
+
+    def fail(city):
+        raise RuntimeError("All sources failed")
+    monkeypatch.setattr(fetch_live, "fetch", fail)
+    monkeypatch.setattr(sys, "argv", ["fetch_live", "--city", "Köln"])
+    with pytest.raises(ToolError, match="is loading"):
+        server.search_posts("instagram", "Köln", [], 14)
+    with pytest.raises(SystemExit):  # the detached process fails and leaves the marker
+        fetch_live.main()
+    _new_process()
+    with pytest.raises(ToolError, match="last fetch failed"):
+        server.search_posts("tiktok", "Köln", [], 14)
+    assert len(spawned) == 1
+    from shared import store
+    store.put("fetches", "koeln", {"started": 1, "failed": time.time() - 700})  # back-off over
+    with pytest.raises(ToolError, match="is loading"):
+        server.search_posts("tiktok", "Köln", [], 14)
+    assert len(spawned) == 2
+
+
+def test_spawn_passes_the_city_as_one_argv_element_without_shell(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *a, **k: calls.append((a, k)))
+    server._spawn("Köln; rm -rf /")
+    (argv,), kw = calls[0]
+    assert argv[-2:] == ["--city", "Köln; rm -rf /"] and not kw.get("shell") and kw["start_new_session"]

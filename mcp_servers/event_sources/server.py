@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import subprocess
 import threading
 import time
 from datetime import date, timedelta
@@ -29,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")  # the stdio client passes no API keys to this process
 FIXTURES = ROOT / "fixtures" / "posts.json"
 LIVE = os.getenv("DEMO_MODE") == "live"  # live: real posts per city, cached by fetch_live.py in fixtures/live/<slug>.json
-MAX_AGE, MAX_FETCHES = 24 * 3600, 5  # cache age in seconds, background fetches per day and process (free Apify credit)
+MAX_AGE, MAX_FETCHES = 24 * 3600, 5  # cache age in seconds, background fetches per day (all processes) (free Apify credit)
 GUARD = os.getenv("GUARD", "gemini")  # gemini = LLM guard with LLM_SMALL_MODEL (Gemini or UniGPT) | model_armor
 NOTE = "Results may be incomplete"
 
@@ -115,41 +116,42 @@ def in_window(text: str, start: date, days: int) -> bool:
 
 # --- Live cache -----------------------------------------------------------------------------
 
-_lock = threading.Lock()
-_running: set[str] = set()
-_fetches: dict = {}  # day -> number of fetches started
+_lock = threading.Lock()  # in-process only; across processes the store decides (small race window, see shortcut)
+RETRY_AFTER = 600  # seconds: a failed city is not fetched again before (protects the daily limit and the Apify credit)
+RUNNING_MAX = 600  # seconds: a fetch without city file and without failure marker counts as dead after this
 
 
-def _spawn(fn) -> None:  # tests replace this
-    threading.Thread(target=fn, daemon=True).start()
+def _spawn(city: str) -> None:  # tests replace this
+    """Detached process: it survives the MCP server, which ADK ends after every scan. Argument list, never a shell."""
+    (ROOT / "data").mkdir(exist_ok=True)
+    from mcp_servers.event_sources import fetch_live
+    with open(ROOT / "data" / f"fetch-{fetch_live.slug(city)}.log", "ab") as log:  # the log never holds the token
+        subprocess.Popen([sys.executable, "-m", "mcp_servers.event_sources.fetch_live", "--city", city], cwd=ROOT,
+                         start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log)
 
 
 def _start_fetch(city: str) -> str | None:
-    """Starts one background fetch for the city. Returns why it did not start, else None (also when one already runs)."""
+    """Starts one detached fetch for the city. Returns why it did not start, else None (also when one already runs).
+    State lives in the store (table fetches): <slug> -> {started, failed?}, day-<date> -> count."""
     from mcp_servers.event_sources import fetch_live
     if not os.getenv("APIFY_TOKEN"):
         return "APIFY_TOKEN is not set"
-    key = fetch_live.slug(city)
-
-    def work():  # logs go to stderr: stdout is the MCP stdio channel
-        try:
-            fetch_live.fetch(city)
-        except Exception as e:  # never print e: it could carry the token
-            print(f"live fetch for {key} failed ({type(e).__name__})", file=sys.stderr)
-        finally:
-            with _lock:
-                _running.discard(key)
-    # shortcut: in-process thread, lost on restart and only one server process; a job queue once there are real users
+    key, now, day = fetch_live.slug(city), time.time(), f"day-{today()}"
+    # shortcut: one detached process per city, check-then-set without a DB lock; a job queue once there are real users
     with _lock:
-        if key in _running:
-            return None
-        if _fetches.get(today(), 0) >= MAX_FETCHES:
+        rec = store.get("fetches", key) or {}
+        if now - rec.get("failed", 0) < RETRY_AFTER:
+            return "the last fetch failed, next try in a few minutes"
+        path = fetch_live.cache_path(city)
+        done = path.exists() and path.stat().st_mtime >= rec.get("started", 0)
+        if "failed" not in rec and not done and now - rec.get("started", 0) < RUNNING_MAX:
+            return None  # still running
+        n = store.get("fetches", day) or 0
+        if n >= MAX_FETCHES:
             return f"daily limit of {MAX_FETCHES} live fetches reached"
-        n = _fetches.get(today(), 0)
-        _fetches.clear()  # new day, new count
-        _fetches[today()] = n + 1
-        _running.add(key)
-    _spawn(work)
+        store.put("fetches", day, n + 1)
+        store.put("fetches", key, {"started": now})
+    _spawn(city)
     return None
 
 

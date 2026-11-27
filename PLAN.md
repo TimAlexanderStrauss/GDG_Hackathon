@@ -1,6 +1,6 @@
 # Sidequest (Event Scout) – Plan after the hackathon
 
-> Status: 2026-11-22. The hackathon MVP works end to end (see [README.md](README.md), section "Status").
+> Status: 2026-11-27. Current state and next steps: section 2. Phases 1, 2 and 4 are done, Phase 3 partly.
 > The hackathon plan (deadlines, team split P1–P4, schedule, demo script) is in the git history: `git show b2000e9:PLAN.md`.
 >
 > **New goal:** Sidequest signs you up for **every** event it suggests. For each event, the app offers the correct next action. The agents do all steps up to the point where the law or the platform needs your own action (pay, send a DM).
@@ -14,22 +14,53 @@
 - Tickets: the agent shows a verified price and availability, fills the checkout and stops at the payment step. You confirm the amount and pay.
 - "Sign me up for all": one review list for all selected events. Free actions run with one click. Each payment needs its own confirmation.
 
-## 2. Where we are
+## 2. Where we are – start here (status 2026-11-27)
 
-What works today: profile → parallel scan (MCP + injection guard) → ranked cards → click → A2A → Google Form POST, or a DM draft, or instructions. Details in the README.
+**Works** (details in the README):
+- **Any city.** Live posts per city: Instagram + TikTok (Apify) and a web search (Firecrawl), cached 24 h in
+  `fixtures/live/<city>.json`. The first scan of a new city starts the fetch as a detached process (`fetch_live`,
+  log in `data/fetch-<city>.log`; max. 5 per day, 10 min pause after a failed fetch, bookkeeping in `data/cache.db`;
+  a city without posts is cached as empty).
+- **Shared event catalog.** Events are extracted once per post and shared by all users (`data/cache.db`); per scan only
+  the ranking for the user's interests runs. Guard verdicts and resolver results are cached there too.
+- **Sign-up kinds** (section 3) with the resolver (JSON-LD, Firecrawl fallback for shops like Eventim) and one card
+  button per kind.
+- **Google sign-in** (Auth.js) with a user id per Google account; sessions persist in SQLite (`data/sidequest.db`).
+- **Web form sign-up** in headless Chromium: preview → your "Submit" click → submit (Phase 4).
+- **Profile changes in the chat:** "try Dortmund", "add Techno", "next 7 days" → tool `update_profile` (code checks
+  the values; name, email and consent stay UI-only), then a new scan; the web app takes the new profile over.
+- **LLM:** UniGPT `DeepSeek-V4-Flash` for every call (`LLM_MODEL`), Gemini as fallback. It is a reasoning model:
+  extraction, price extraction, scouts and ranking run with reasoning off (`think=False` in `shared/llm.py`; a cold
+  city scan went from ~4 min to ~27 s). Guard, concierge and enrollment keep reasoning.
+- 122 offline tests (`uv run pytest`); the 10 browser tests need `uv run playwright install chromium`.
 
-### Gaps for the new goal
+**Fixed after the live test of 2026-11-27, re-test in the app:** a scan crashed for a city without posts
+("validation error for Ranked"); the chat hung because scouts retried `search_posts` in a loop and each retry could start
+a new Apify run; a city without posts was never cached; the same event appeared twice (venue written differently).
+Second live test (Rheine, Dortmund): no city ever loaded, because ADK's AgentTool ends the MCP server after every scan
+and the fetch thread died with it (every scan started a new, billed Apify run). Now a detached process.
+Third live test (Rheine): the city loaded, but the scan took 4 min (reasoning tokens) → reasoning off for simple tasks.
 
-| Gap | Where | Effect |
-|---|---|---|
-| `enrollment_mode` knows only `auto`, `manual` and `unknown` | `shared/schemas.py` | There is no value for "no sign-up needed" and no value for "tickets" |
-| The curator sets `manual` for DM, website and box office alike | `agents/scouts/agent.py`, `_curator_instruction` | The enrollment agent cannot see what kind of manual step it is |
-| The enrollment LLM chooses the sign-up path. For `manual` or `unknown` it often calls `prepare_message_signup` | `agents/enrollment/agent.py`, instruction steps 3 and 4 | **Demo bug:** a club night got "sign up by DM" |
-| Only links in the post text count. "Link in bio" and ticket shop pages are never read (no fetch tool, on purpose) | `_finalize_events` | Most tickets stay invisible. The live Heaven Münster posts only say "Ticket Link in Bio" |
-| Automatic sign-up works only for Google Forms with exactly "Name" and "Email" | `submit_google_form` | Other forms (Eventbrite, pretix, own websites) are manual |
-| The card button says "Enroll me" or "Get sign-up steps", nothing else | `web/components/EventCards.tsx:77` | No "Buy ticket", no "Just go" |
-| Deduplication only by `source_url` | `_finalize_events` | One event in 7 posts gives up to 7 cards (live data: Heaven Münster) |
-| Demo sign-in, in-memory sessions, free-tier Gemini | `web/lib/session.ts`, `agents/concierge/app.py` | Real personal data is not allowed yet: Google can use free-tier data for product improvement |
+**Not verified live yet:** a new city end to end in the app (detached fetch with real Apify), profile change in the
+chat with the web sync, web form sign-up inside the app (no live `web_form` event so far), the Firecrawl search
+response format, Google sign-out.
+
+**Known limits:** the concierge trusts any caller on port 8000 (add a shared secret before hosting); a wrongly extracted
+event stays in the catalog until the post text changes (delete `data/cache.db` to reset); `unknown` share 1 of 5 on
+Münster (target < 10 %, sample too small).
+
+**Next steps, in this order:**
+1. Re-test in the app: a new city such as Rheine (loading → `data/fetch-rheine.log` → scan again after 1–3 min →
+   events or "no posts"), "try Dortmund instead" in the chat (profile + header change, new scan), Münster (warm, fast);
+   Google sign-out; profile still there after a concierge restart. Check the Apify usage after the test.
+2. Measure the `unknown` share over 3–4 cities (Phase 2 target).
+3. A test path for `web_form` in the app (own test form + a fictional fixture post), then preview → submit live.
+4. Phase 3 rest: enrollments table with proof, shared secret between the Next.js route and the concierge, privacy
+   notice and "delete my data", consent levels.
+5. Phase 6 ("Sign me up for all"). Phase 5 only after the decisions in "Before Phase 5".
+6. Hosting (Phase 7): Postgres URLs instead of SQLite, the browser in a container.
+
+The gap table of 2026-11-22 (all closed by Phases 1–4) is in the git history.
 
 ### The demo bug: a club night got "sign up by DM"
 

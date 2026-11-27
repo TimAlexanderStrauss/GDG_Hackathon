@@ -4,7 +4,7 @@ search (only if FIRECRAWL_API_KEY is set: 1 query, 5 pages, about 7 credits per 
 Run: uv run python -m mcp_servers.event_sources.fetch_live --city "Köln"   (default: Münster)
 Needs APIFY_TOKEN in .env. Takes 1-3 min and a few cents of Apify credit. Writes fixtures/live/<slug>.json
 (slug = ascii form of the city, e.g. muenster), which search_posts reads instead of the demo fixtures. The server also
-starts this fetch in the background when the cache of a city is missing or older than 24 h. Hashtags and the location
+starts this fetch as a detached process when the cache of a city is missing or older than 24 h. Hashtags and the location
 filter are derived from the city name (umlaut and ascii variants). The guard still checks every post at search time.
 """
 import argparse
@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 
 import httpx
@@ -130,11 +131,12 @@ def select(raw: list[dict], today: date) -> list[SocialPost]:
 
 
 def fetch(city: str) -> int:
-    """Fetch, select and write fixtures/live/<slug>.json. Returns the number of posts, raises RuntimeError."""
+    """Fetch, select and write fixtures/live/<slug>.json (also when empty). Returns the number of posts.
+    Raises RuntimeError when no source answered."""
     if not os.getenv("APIFY_TOKEN"):
         raise RuntimeError("APIFY_TOKEN is empty in .env")
     out = cache_path(city)
-    posts = []
+    posts, answered = [], 0
     for source in (instagram, tiktok, web):
         if source is web and not os.getenv("FIRECRAWL_API_KEY"):
             continue
@@ -143,13 +145,15 @@ def fetch(city: str) -> int:
         except (httpx.HTTPError, ValueError) as e:  # ValueError: bad JSON
             print(f"{source.__name__}: failed ({type(e).__name__} {getattr(getattr(e, 'response', None), 'status_code', '')})", file=sys.stderr)
             continue
+        answered += 1
         chosen = select(raw, date.today())
         if source is instagram:
             chosen = add_bio_links(chosen, raw)
         print(f"{source.__name__}: {len(raw)} fetched, {len(chosen)} kept", file=sys.stderr)
         posts += chosen
-    if not posts:
-        raise RuntimeError(f"No posts kept, {out.name} unchanged")
+    if not answered:
+        raise RuntimeError(f"All sources failed, {out.name} unchanged")
+    # an empty list is written too: a small city with no posts is known for 24 h instead of a new Apify run per scan
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps([p.model_dump(mode="json") for p in posts], ensure_ascii=False, indent=1))
     print(f"wrote {len(posts)} posts to {out}", file=sys.stderr)
@@ -159,10 +163,15 @@ def fetch(city: str) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--city", default="Münster")
+    city = ap.parse_args().city
     try:
-        fetch(ap.parse_args().city)
-    except (RuntimeError, ValueError) as e:
-        raise SystemExit(str(e))
+        fetch(city)
+    except Exception as e:  # the detached run has no caller: leave a marker the server reads (never print e, token)
+        from shared import store
+        key = slug(city)
+        if key:
+            store.put("fetches", key, {**(store.get("fetches", key) or {}), "failed": time.time()})
+        raise SystemExit(str(e) if isinstance(e, (RuntimeError, ValueError)) else f"fetch failed ({type(e).__name__})")
 
 
 if __name__ == "__main__":

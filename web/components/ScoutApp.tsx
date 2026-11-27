@@ -2,7 +2,7 @@
 
 import { CopilotKitProvider } from "@copilotkit/react-core/v2";
 import { signOut as authSignOut, useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RUNTIME_PATH } from "@/lib/config";
 import {
   EMPTY_DRAFT,
@@ -74,6 +74,16 @@ export function ScoutApp() {
     setScanRequest((n) => n + 1);
   };
 
+  // The concierge changed city, interests or days: keep the browser's name, email, consent and platforms.
+  const takeAgentProfile = useCallback((a: Pick<UserProfile, "city" | "interests" | "days_ahead">) => {
+    setProfile((p) => {
+      if (!p) return p;
+      const next = { ...p, city: a.city, interests: a.interests, days_ahead: a.days_ahead };
+      saveProfile(next);
+      return next;
+    });
+  }, []);
+
   const signOut = async () => {
     if (session?.provider === "google") await authSignOut({ redirect: false });
     clearAll();
@@ -105,7 +115,7 @@ export function ScoutApp() {
         onCancel={profile ? () => setEditing(false) : undefined}
       />
     );
-  else view = <Dashboard profile={profile} socials={session.socials} scanRequest={scanRequest} onEdit={() => setEditing(true)} />;
+  else view = <Dashboard profile={profile} socials={session.socials} scanRequest={scanRequest} onEdit={() => setEditing(true)} onAgentProfile={takeAgentProfile} />;
 
   return (
     <CopilotKitProvider runtimeUrl={RUNTIME_PATH} enableInspector={false} showIntelligenceIndicator={false}>

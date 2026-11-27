@@ -18,9 +18,11 @@ type Props = {
   /** Increments each time the user saves the form, to start a fresh scan. */
   scanRequest: number;
   onEdit: () => void;
+  /** The agent changed city, interests or days in the chat: the app takes them over. */
+  onAgentProfile: (p: Pick<UserProfile, "city" | "interests" | "days_ahead">) => void;
 };
 
-export function Dashboard({ profile, socials, scanRequest, onEdit }: Props) {
+export function Dashboard({ profile, socials, scanRequest, onEdit, onAgentProfile }: Props) {
   const { agent, isReady } = useAgent({ agentId: AGENT_ID });
   const { copilotkit } = useCopilotKit();
   const { pending } = useChoice();
@@ -34,12 +36,31 @@ export function Dashboard({ profile, socials, scanRequest, onEdit }: Props) {
   const state = (agent.state ?? {}) as AgentState;
   const isRunning = agent.isRunning;
 
-  // Keep profile in shared state, preserving everything else the agent wrote.
+  // Profile and shared state stay in sync both ways. lastSynced = the profile both sides last agreed on:
+  // a state profile that differs from it came from the agent (update_profile), so the app adopts it instead of
+  // overwriting it; otherwise the app's profile (form edit) goes into the state.
+  const lastSynced = useRef<UserProfile | null>(null);
+  const searchPart = (p?: Partial<UserProfile>) => JSON.stringify([p?.city, p?.interests, p?.days_ahead]);
+  const agentProfile = (agent.state as AgentState | undefined)?.profile;
+  const agentKey = searchPart(agentProfile);
   useEffect(() => {
     if (!isReady) return;
     const current = (agent.state ?? {}) as AgentState;
+    const fromAgent = current.profile;
+    if (
+      fromAgent &&
+      lastSynced.current &&
+      searchPart(fromAgent) !== searchPart(lastSynced.current) &&
+      searchPart(fromAgent) !== searchPart(profile)
+    ) {
+      const { city, interests, days_ahead } = fromAgent;
+      lastSynced.current = { ...profile, city, interests, days_ahead };
+      onAgentProfile({ city, interests, days_ahead });
+      return;
+    }
+    lastSynced.current = profile;
     if (JSON.stringify(current.profile) !== JSON.stringify(profile)) agent.setState({ ...current, profile });
-  }, [agent, isReady, profile]);
+  }, [agent, isReady, profile, agentKey, onAgentProfile]);
 
   const scan = useCallback(async () => {
     setError(null);

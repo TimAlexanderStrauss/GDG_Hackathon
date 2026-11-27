@@ -128,3 +128,21 @@ def test_web_source_skipped_without_key_and_failure_is_harmless(monkeypatch, tmp
     assert f.fetch("Köln") == 1
     cap = capsys.readouterr()
     assert "web: failed" in cap.err and "secret" not in cap.err and cap.out == ""
+
+
+def test_city_without_posts_gets_an_empty_cache_but_all_failed_raises(monkeypatch, tmp_path):
+    import httpx
+    import pytest
+    from mcp_servers.event_sources import fetch_live as f
+    monkeypatch.setattr(f, "LIVE_DIR", tmp_path)
+    monkeypatch.setenv("APIFY_TOKEN", "x")
+    monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
+    monkeypatch.setattr(f, "_run", lambda actor, payload: [])  # sources answer, nothing to keep
+    assert f.fetch("Emsdetten") == 0 and (tmp_path / "emsdetten.json").read_text().strip() == "[]"
+
+    def down(actor, payload):
+        raise httpx.ConnectError("down")
+    monkeypatch.setattr(f, "_run", down)
+    with pytest.raises(RuntimeError):
+        f.fetch("Greven")
+    assert not (tmp_path / "greven.json").exists()  # retried on the next scan
