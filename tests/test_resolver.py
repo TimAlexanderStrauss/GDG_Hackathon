@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from mcp_servers.event_sources import resolver
+from shared import store
 
 FIX = Path(__file__).parent / "fixtures"
 TITLE, START = "Nebula Night Synthwave", "2026-12-05T20:00:00"
@@ -27,7 +28,6 @@ def web(monkeypatch):
         return httpx.Response(200, content=v, headers={"content-type": "text/html; charset=utf-8"})
     monkeypatch.setattr(resolver, "_transport", httpx.MockTransport(handler))
     monkeypatch.setattr(socket, "getaddrinfo", lambda h, *a, **k: [(2, 1, 6, "", ("93.184.216.34", 443))])
-    resolver._cache.clear()
     resolver._fc_calls.clear()
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)  # .env may hold a real key: tests stay offline
     pages["seen"] = seen  # type: ignore
@@ -70,7 +70,7 @@ def test_bio_page_one_hop_only(web):
     web["https://tickets.example.org/nebula"] = page("event_ticket.html")
     assert resolver.resolve_signup("https://linktr.example.org/club", TITLE, START)["signup"] == "tickets"
     # the second page is a bio page again: its link is not followed
-    resolver._cache.clear()
+    store.clear("resolver")
     web["https://tickets.example.org/nebula"] = page("bio_page_deep.html")
     web["https://deep.example.org/nebula"] = page("event_ticket.html")
     web["seen"].clear()
@@ -120,7 +120,7 @@ def test_poisoned_page_blocked(web):
 def test_cache_hit_does_not_fetch_twice(web):
     web["https://a.example.org/t"] = page("event_ticket.html")
     a = resolver.resolve_signup("https://a.example.org/t", TITLE, START)
-    assert resolver.resolve_signup("https://a.example.org/t", TITLE, START) is a and len(web["seen"]) == 1
+    assert resolver.resolve_signup("https://a.example.org/t", TITLE, START) == a and len(web["seen"]) == 1
 
 
 SHOP_MD = "# Nebula Night Synthwave\nSa., 05.12.2026, 20:00\n\nKategorie 1 € 19,15 inkl. Gebühren\n[In den Warenkorb](...)"
@@ -148,7 +148,7 @@ def test_blocked_shop_falls_back_to_rendered_page(fc):
 def test_rendered_price_must_be_on_the_page_with_currency(fc):
     fc["offer"] = resolver._Offer(price="9,99", availability="available")  # LLM invents a price
     assert resolver.resolve_signup("https://shop.example.org/e", TITLE, START)["signup"] == "unknown"
-    resolver._cache.clear()
+    store.clear("resolver")
     fc["md"], fc["offer"] = SHOP_MD.replace("€ 19,15", "19,15"), resolver._Offer(price="19,15", availability="available")
     assert resolver.resolve_signup("https://shop.example.org/e", TITLE, START)["signup"] == "unknown"  # no currency
 

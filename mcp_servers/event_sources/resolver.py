@@ -6,6 +6,7 @@ availability, and code keeps the price only if it is written on the page next to
 Only structured fields leave this module (price formatted in code, availability enum, URLs).
 Never raises: every failure is signup "unknown" with a short note.
 """
+import hashlib
 import ipaddress
 import json
 import os
@@ -23,11 +24,11 @@ import httpx
 from pydantic import BaseModel
 
 from mcp_servers.event_sources.server import SUSPICIOUS, is_poisoned
+from shared import store
 from shared.llm import structured
 from shared.schemas import TicketOffer
 
 MAX_BYTES, MAX_REDIRECTS, TIMEOUT, TTL = 1_000_000, 2, 10, 3600
-_cache: dict[tuple, tuple[float, dict]] = {}
 _transport = None  # tests inject httpx.MockTransport
 TOKEN = re.compile(r"[^\W_]{3,}")
 ISO_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -266,14 +267,14 @@ def _resolve(url: str, title: str, start: str, hop: bool) -> dict:
 
 
 def resolve_signup(url: str, title: str = "", start: str = "") -> dict:
-    key = (url, title, start)
-    if (hit := _cache.get(key)) and time.time() - hit[0] < TTL:
-        return hit[1]
+    key = hashlib.sha1(json.dumps([url, title, start]).encode()).hexdigest()
+    if (hit := store.get("resolver", key, TTL)) is not None:
+        return hit
     try:
         res = _resolve(url, title, start, hop=True)
     except _Fail as e:
         res = _out(note=f"not resolved: {e}")
     except Exception as e:  # never raise into the agent
         res = _out(note=f"not resolved: {type(e).__name__}")
-    _cache[key] = (time.time(), res)
+    store.put("resolver", key, res)
     return res

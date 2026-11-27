@@ -34,7 +34,7 @@ flowchart LR
 |---|---|---|
 | Web app | `web/` | Next.js 16 + CopilotKit 1.90 (self-hosted runtime, no CopilotKit Cloud). Sign-in, socials, preferences, event cards and map, chat, activity panel. Details: [web/README.md](web/README.md) |
 | Concierge | `agents/concierge/` | Main agent (`LLM_MODEL`). Reads the profile from the AG-UI state, starts the scout pipeline, shows the events through the frontend tool `choose_event`, and sends an `EnrollmentRequest` over A2A after the click |
-| Scouts + curator | `agents/scouts/` | One scout per platform (`instagram`, `tiktok`, `web`), run in parallel on `LLM_SMALL_MODEL`. Each scout chooses its own hashtags and calls `search_posts` once. The curator (`LLM_MODEL`) extracts, filters, deduplicates and ranks the events with a reason. Code then sets the sign-up kind (`none`, `google_form`, `web_form`, `tickets`, `message`, `unknown`) |
+| Scouts + curator | `agents/scouts/` | One scout per platform (`instagram`, `tiktok`, `web`), run in parallel on `LLM_SMALL_MODEL`. Each scout chooses its own hashtags and calls `search_posts` once. Extraction (`LLM_MODEL`) turns each post into events once and stores them in a shared event catalog (`shared/store.py`), so the next scan and every other user of the city reuse them. Code filters by date window and city and deduplicates; the curator (`LLM_MODEL`) only ranks the candidates for the user's interests. Code sets the sign-up kind (`none`, `google_form`, `web_form`, `tickets`, `message`, `unknown`) |
 | Resolver | `mcp_servers/event_sources/resolver.py` | Follows the link in the post or the account's bio link and finds a ticket offer or a free registration page. First schema.org JSON-LD (code only). If a shop blocks that or has no JSON-LD: Firecrawl renders the page, the guard checks it, the LLM proposes price and availability, and code keeps the price only if it is on the page |
 | LLM switch | `shared/llm.py` | `LLM_MODEL` / `LLM_SMALL_MODEL`: `gemini-...` (Gemini API) or `openai/<model>` (OpenAI-compatible endpoint such as UniGPT, through LiteLLM) |
 | MCP server | `mcp_servers/event_sources/` | One tool: `search_posts(platform, city, hashtags, days_ahead)`. It validates the input, filters by platform, city and date, and checks every post for prompt injection before any LLM sees it |
@@ -88,7 +88,7 @@ The system prompt is a request. The tool set is the boundary.
 | X and Facebook | Shown as "planned". No scout reads them, and they are not in the shared `Platform` type |
 | Social data (default) | `fixtures/posts.json`: 9 fictional German posts (1 poisoned, 1 with a Google Form link, 1 in Berlin, 1 past event) |
 | Live data | Fetched offline with `fetch_live.py` (1–3 min per run), not per scan. The server ignores the hashtags for live data and filters only by platform, city and date |
-| Users and sessions | One fixed user (`demo_user`), in-memory sessions, no database |
+| Users and sessions | Google users get their own id (`google:<email>`, set server-side by the Next.js route), demo logins share `demo_user`. Sessions persist in SQLite (`data/sidequest.db`). The concierge trusts any caller on its port: add a shared secret before hosting |
 | Map | Keyless Google Maps embed. It shows one event at a time, not one pin per event |
 | Calendar | A Google Calendar template link with an assumed duration of 2 hours. No real calendar entry |
 | Automatic enrollment | Google Forms with a "Name" and an "Email" question, and simple web forms (name, email, required checkboxes). Stops on login, captcha, other required fields, or a form that sends to another site |
@@ -127,6 +127,8 @@ uv run pytest                # optional check, no API calls
 | `APIFY_TOKEN` | – | Only for `fetch_live.py` |
 | `FIRECRAWL_API_KEY` | – | Optional. Resolver fallback for ticket shops that block plain HTTP (1 credit per page) |
 | `ENROLLMENT_A2A_URL` | `http://localhost:8001` | Where the concierge finds the enrollment agent |
+| `SESSION_DB_URL` | `sqlite+aiosqlite:///data/sidequest.db` | ADK sessions (profile, events, enrollments, audit). Postgres later: change the URL |
+| `CACHE_DB_URL` | `sqlite:///data/cache.db` | Shared public cache: event catalog per post, guard verdicts, resolver results (1 h) |
 | `DEMO_FORM_URL` | – | Only used by the stub scout pipeline. The real Google Form link is in `fixtures/posts.json` |
 
 The web app needs no secrets yet. Optional: `web/.env.local` with `CONCIERGE_URL` (default `http://localhost:8000/`). `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` and `AUTH_SECRET` are prepared for the Google sign-in (PLAN.md, Phase 3) and not used yet.

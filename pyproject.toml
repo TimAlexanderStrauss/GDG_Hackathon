@@ -12,6 +12,8 @@ dependencies = [
     "python-dotenv",
     "litellm>=1.111.0",
     "playwright>=1.65.2",
+    "sqlalchemy>=2.1.9",
+    "aiosqlite>=0.22.1",
 ]
 
 [project.optional-dependencies]

@@ -198,7 +198,12 @@ Needed before agents send real sign-ups to real organizers. You can build Phase 
 - [x] Google OAuth sign-in (real name and email). Keep the other providers only as "demo" or remove them.
   *Done 2026-11-27: Auth.js v5 (`web/auth.ts`), other providers labeled "Demo". Open: the concierge still trusts the
   profile from the browser; check the Auth.js session in the CopilotKit route when there are other users.*
-- [ ] Persistent storage: ADK `DatabaseSessionService` (SQLite first, Cloud SQL or Firestore later). One table for enrollments and purchases, with the proof (`approved_at`, screenshot, confirmation).
+- [x] Persistent storage: ADK `DatabaseSessionService` (SQLite first, Cloud SQL or Firestore later). One table for enrollments and purchases, with the proof (`approved_at`, screenshot, confirmation).
+  *Done 2026-11-27: sessions in SQLite (`SESSION_DB_URL`), real user id per Google user (route → header → concierge).
+  Shared public cache (`CACHE_DB_URL`, `shared/store.py`): event catalog per post (extraction once, ranking per user),
+  guard verdicts, resolver results. Both are SQLAlchemy, so Postgres is a URL change when hosting (SQLite does not work
+  with several Cloud Run instances). Open: a separate enrollments table (today the proof is in the session state and
+  `data/screenshots/`); a shared secret between the Next.js route and the concierge before hosting.*
 - [ ] *Postponed (decision 2026-11-27: free tiers only):* Paid Gemini tier or Vertex AI. On the free tier, Google
   can use the data. Until then: only the developer's own data and fictional test data, no other real users.
 - [ ] One env file per process (least privilege, open point from the README).

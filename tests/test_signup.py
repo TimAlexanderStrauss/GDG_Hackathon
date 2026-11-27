@@ -2,18 +2,17 @@
 from types import SimpleNamespace
 
 from agents.scouts.agent import _finalize_events
+from shared.schemas import Event
 
 CLUB = "Club Night im Hafen! Programm: DJ Foo, DJ Bar. Eintritt: 10,00€ Barzahlung an der Kasse"
 
 
-def run(posts, **curated_overrides):
-    """posts: {url: text}; curated_overrides: per url a dict of Event fields the LLM proposed."""
-    curated = [{"id": "", "title": "Event " + url[-1], "venue": "Hafen", "city": "Münster", "platform": "instagram",
-                "source_url": url, "start": "2026-11-28T23:00:00+01:00", "match_score": 0.5,
-                **curated_overrides.get(url, {})} for url in posts]
-    state = {"temp:posts_instagram": [{"url": u, "text": t} for u, t in posts.items()], "temp:curated": {"events": curated}}
-    _finalize_events(SimpleNamespace(state=state))
-    return state["events"]
+def run(posts, **proposed):
+    """posts: {url: text}; proposed: per url a dict of Event fields the LLM proposed."""
+    events = [Event.model_validate({"id": "", "title": "Event " + url[-1], "venue": "Hafen", "city": "Münster",
+                                    "platform": "instagram", "source_url": url, "start": "2026-11-28T23:00:00+01:00",
+                                    **proposed.get(url, {})}) for url in posts]
+    return _finalize_events(events, posts)
 
 
 def one(text, **fields):
@@ -56,8 +55,7 @@ def test_signup_hint_must_be_a_quote():
 def test_same_event_in_three_posts_is_one_event():
     posts = {f"https://www.instagram.com/p/{c}/": CLUB for c in "ABC"}
     same = {"title": "Club Night!", "start": "2026-11-28T23:00:00+01:00"}
-    events = run(posts, **{u: {**same, "match_score": s} for u, s in zip(posts, (0.3, 0.9, 0.6))})
-    assert len(events) == 1 and events[0]["match_score"] == 0.9
+    assert len(run(posts, **{u: same for u in posts})) == 1
 
 
 def test_event_without_venue_or_start_does_not_crash():
@@ -116,8 +114,20 @@ def test_scan_notes_hold_only_this_scans_errors():
 
 def test_events_from_one_page_get_different_ids():
     url = "https://example.org/termine"
-    state = {"temp:posts_web": [{"url": url, "text": "Termine"}], "temp:curated": {"events": [
-        {"id": "", "title": t, "venue": "Hafen", "city": "Münster", "platform": "web", "source_url": url,
-         "start": "2026-11-28T23:00:00+01:00", "match_score": 0.5} for t in ("Konzert A", "Konzert B")]}}
-    _finalize_events(SimpleNamespace(state=state))
-    assert len({e["id"] for e in state["events"]}) == 2
+    events = [Event.model_validate({"id": "", "title": t, "venue": "Hafen", "city": "Münster", "platform": "web",
+                                    "source_url": url, "start": "2026-11-28T23:00:00+01:00"})
+              for t in ("Konzert A", "Konzert B")]
+    assert len({e["id"] for e in _finalize_events(events, {url: "Termine"})}) == 2
+
+
+def test_event_from_unfetched_post_and_foreign_registration_url_are_dropped():
+    url = "https://www.instagram.com/p/A/"
+    assert run({url: "x"}, **{url: {"source_url": "https://www.instagram.com/p/Z/"}}) == []
+    assert one("Anmeldung folgt", registration_url="https://evil.example/x")["registration_url"] is None
+
+
+def test_city_filter_in_code():
+    from agents.scouts.agent import _in_city
+    assert _in_city("Münster", "Muenster") and _in_city("Münster-Hiltrup", "Münster") and _in_city(None, "Münster")
+    assert not _in_city("München", "Münster") and not _in_city("Köln", "Münster")
+    assert _in_city("Frankfurt am Main", "frankfurt am main")

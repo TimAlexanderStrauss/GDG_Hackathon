@@ -39,9 +39,9 @@ def _gemini():
     return genai.Client(http_options=genai.types.HttpOptions(retry_options=genai.types.HttpRetryOptions(attempts=3)))
 
 
-def structured[T: BaseModel](system: str, user: str, schema: type[T]) -> T | None:
-    """One call with a JSON schema answer (small model). None if the answer does not fit the schema."""
-    name = model_name(small=True)
+def structured[T: BaseModel](system: str, user: str, schema: type[T], small: bool = True) -> T | None:
+    """One call with a JSON schema answer (small model by default). None if the answer does not fit the schema."""
+    name = model_name(small=small)
     if name.startswith("openai/"):
         import litellm
         from google.adk.models.lite_llm import _to_litellm_response_format
