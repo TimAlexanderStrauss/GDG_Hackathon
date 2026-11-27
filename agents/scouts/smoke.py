@@ -1,6 +1,8 @@
-"""Run the scout pipeline once with the demo persona (real Gemini + MCP). uv run python -m agents.scouts.smoke
-With DEMO_MODE=live it reads fixtures/live_posts.json and prints the share of `unknown` (PLAN.md phase 2)."""
+"""Run the scout pipeline once with the demo persona (real LLM + MCP). uv run python -m agents.scouts.smoke [city]
+With DEMO_MODE=live it reads fixtures/live/<city>.json (default Münster) and prints the share of `unknown` (PLAN.md
+phase 2). For a new city run `fetch_live --city <city>` first: the server's background fetch stops when this script exits."""
 import asyncio
+import sys
 
 from dotenv import load_dotenv
 
@@ -11,7 +13,7 @@ from google.genai import types  # noqa: E402
 
 from agents.scouts.agent import event_sources, scout_pipeline  # noqa: E402
 
-LEA = {"user_id": "lea", "display_name": "Lea", "email": "lea@example.com", "city": "Münster",
+LEA = {"user_id": "lea", "display_name": "Lea", "email": "lea@example.com", "city": sys.argv[1] if len(sys.argv) > 1 else "Münster",
        "interests": ["AI", "Techno", "Startups"], "days_ahead": 14}
 
 

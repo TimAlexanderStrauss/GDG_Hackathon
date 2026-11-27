@@ -11,6 +11,6 @@ The hackathon is over. Development continues without a deadline and without fixe
 - No costs: development uses only free tiers (UniGPT of Uni Münster via `LLM_MODEL`, Gemini API free tier as fallback, Apify free plan with 5 USD credit per month, Firecrawl free credits). No paid service and no Google Cloud billing without the human's approval.
 - API quota is small: tests run offline (mock the LLM, Apify, Firecrawl, Model Armor and the network). Run live calls (smoke runs, `fetch_live`, scans) only when the human asks, and as few as possible.
 - Secrets only in `.env`: never commit them, never print them, never write them to logs. `DEMO_MODE=fixtures` is the default.
-- Real third-party posts (`fixtures/live_posts.json`) stay out of git and out of test fixtures. Tests use fictional posts.
+- Real third-party posts (`fixtures/live/<city>.json`) stay out of git and out of test fixtures. Tests use fictional posts.
 - Smallest working solution, no extras.
 - Commit and push only when the human says so. Run `git pull --rebase` first.

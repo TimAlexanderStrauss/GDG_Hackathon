@@ -104,3 +104,20 @@ def test_scout_skip_is_decided_in_code():
     assert _skip_unselected(ctx("tiktok_scout", {"platforms": ["instagram"]})).parts[0].text == "skipped"
     assert _skip_unselected(ctx("instagram_scout", {"platforms": ["instagram"]})) is None
     assert _skip_unselected(ctx("tiktok_scout", {"city": "Münster"})) is None  # no platforms field = all
+
+
+def test_scan_notes_hold_only_this_scans_errors():
+    from agents.scouts.agent import _merge_scout_state
+    state = {"temp:audit_instagram": [{"note": "error: SOURCE_UNAVAILABLE: live data for Köln is loading"}],
+             "temp:audit_tiktok": [{"note": "tiktok Köln 14d #x: 3 posts, 0 blocked"}], "scan_notes": ["old"]}
+    _merge_scout_state(SimpleNamespace(state=state))
+    assert state["scan_notes"] == ["error: SOURCE_UNAVAILABLE: live data for Köln is loading"]
+
+
+def test_events_from_one_page_get_different_ids():
+    url = "https://example.org/termine"
+    state = {"temp:posts_web": [{"url": url, "text": "Termine"}], "temp:curated": {"events": [
+        {"id": "", "title": t, "venue": "Hafen", "city": "Münster", "platform": "web", "source_url": url,
+         "start": "2026-11-28T23:00:00+01:00", "match_score": 0.5} for t in ("Konzert A", "Konzert B")]}}
+    _finalize_events(SimpleNamespace(state=state))
+    assert len({e["id"] for e in state["events"]}) == 2

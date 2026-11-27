@@ -5,6 +5,9 @@ Run (stdio): uv run python -m mcp_servers.event_sources.server
 import json
 import os
 import re
+import sys
+import threading
+import time
 from datetime import date, timedelta
 from functools import cache
 from pathlib import Path
@@ -22,7 +25,9 @@ from shared.schemas import Platform, SocialPost
 
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")  # the stdio client passes no API keys to this process
-FIXTURES = ROOT / "fixtures" / ("live_posts.json" if os.getenv("DEMO_MODE") == "live" else "posts.json")  # live: real posts, cached by fetch_live.py
+FIXTURES = ROOT / "fixtures" / "posts.json"
+LIVE = os.getenv("DEMO_MODE") == "live"  # live: real posts per city, cached by fetch_live.py in fixtures/live/<slug>.json
+MAX_AGE, MAX_FETCHES = 24 * 3600, 5  # cache age in seconds, background fetches per day and process (free Apify credit)
 GUARD = os.getenv("GUARD", "gemini")  # gemini = LLM guard with LLM_SMALL_MODEL (Gemini or UniGPT) | model_armor
 NOTE = "Results may be incomplete"
 
@@ -88,6 +93,60 @@ def in_window(text: str, start: date, days: int) -> bool:
     return start <= when <= start + timedelta(days=days)
 
 
+# --- Live cache -----------------------------------------------------------------------------
+
+_lock = threading.Lock()
+_running: set[str] = set()
+_fetches: dict = {}  # day -> number of fetches started
+
+
+def _spawn(fn) -> None:  # tests replace this
+    threading.Thread(target=fn, daemon=True).start()
+
+
+def _start_fetch(city: str) -> str | None:
+    """Starts one background fetch for the city. Returns why it did not start, else None (also when one already runs)."""
+    from mcp_servers.event_sources import fetch_live
+    if not os.getenv("APIFY_TOKEN"):
+        return "APIFY_TOKEN is not set"
+    key = fetch_live.slug(city)
+
+    def work():  # logs go to stderr: stdout is the MCP stdio channel
+        try:
+            fetch_live.fetch(city)
+        except Exception as e:  # never print e: it could carry the token
+            print(f"live fetch for {key} failed ({type(e).__name__})", file=sys.stderr)
+        finally:
+            with _lock:
+                _running.discard(key)
+    # shortcut: in-process thread, lost on restart and only one server process; a job queue once there are real users
+    with _lock:
+        if key in _running:
+            return None
+        if _fetches.get(today(), 0) >= MAX_FETCHES:
+            return f"daily limit of {MAX_FETCHES} live fetches reached"
+        n = _fetches.get(today(), 0)
+        _fetches.clear()  # new day, new count
+        _fetches[today()] = n + 1
+        _running.add(key)
+    _spawn(work)
+    return None
+
+
+def _live_path(city: str) -> Path:
+    from mcp_servers.event_sources import fetch_live
+    try:
+        path = fetch_live.cache_path(city)
+    except ValueError as e:
+        raise ToolError(f"INVALID_INPUT: {e}") from e
+    fresh = path.exists() and time.time() - path.stat().st_mtime < MAX_AGE
+    why = None if fresh else _start_fetch(city)
+    if not path.exists():
+        raise ToolError(f"SOURCE_UNAVAILABLE: live data for {city} " +
+                        (f"is loading (1-3 min), scan again then" if why is None else f"cannot be loaded: {why}"))
+    return path  # stale cache: used now, refreshed in the background
+
+
 # --- Tool ------------------------------------------------------------------------------------
 
 class SearchResult(BaseModel):
@@ -112,16 +171,22 @@ def search_posts(platform: Platform, city: str, hashtags: list[str], days_ahead:
     if not city.strip() or len(city) > 60:
         raise ToolError("INVALID_INPUT: city must be 1..60 characters")
 
+    source = _live_path(city) if LIVE else FIXTURES
     try:
-        posts = [SocialPost.model_validate(p) for p in json.loads(FIXTURES.read_text())]
+        posts = [SocialPost.model_validate(p) for p in json.loads(source.read_text())]
     except (OSError, ValueError) as e:
-        raise ToolError(f"SOURCE_UNAVAILABLE: {FIXTURES.name} could not be read") from e
+        raise ToolError(f"SOURCE_UNAVAILABLE: {source.name} could not be read") from e
+    if LIVE:
+        from mcp_servers.event_sources import fetch_live
+        names = fetch_live.variants(city)
+    else:
+        names = [city.casefold()]
 
     # shortcut: hashtags are ignored, live posts come from the Apify cache (a run takes 1-2 min, too slow per scan)
     start = today()
     candidates = [p for p in posts
                   if p.platform == platform
-                  and city.casefold() in (p.location or city).casefold()
+                  and any(n in (p.location or city).casefold() for n in names)
                   and in_window(p.text, start, days_ahead)]
     try:
         verdicts = [is_poisoned(p.text) for p in candidates]

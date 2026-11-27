@@ -1,6 +1,6 @@
 # Sidequest web app (P1)
 
-Next.js 16 + CopilotKit 1.90 (v2 API) frontend: demo sign-in, add socials, preferences (with AI-assistant import), event cards, chat, scan progress and audit log. Self-hosted CopilotKit runtime, no CopilotKit Cloud or Intelligence account.
+Next.js 16 + CopilotKit 1.90 (v2 API) frontend: sign-in (Google real, others demo), add socials, preferences (with AI-assistant import), event cards, chat, scan progress and audit log. Self-hosted CopilotKit runtime, no CopilotKit Cloud or Intelligence account.
 
 ## Run
 
@@ -20,7 +20,13 @@ Checks: `npx tsc --noEmit`, `npm run lint`, `npm run build`. Design system: [DES
 | `CONCIERGE_URL` | `http://localhost:8000/` | P3's AG-UI endpoint (server-side only) |
 | `COPILOTKIT_TELEMETRY_DISABLED` | unset | set `true` to turn off CopilotKit runtime telemetry |
 
-No secrets live in `web/`. The Gemini key stays in the Python processes.
+Google sign-in (Auth.js v5, `next-auth@beta`) needs `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` and `AUTH_SECRET` in `web/.env.local` (git ignores it, see `.env.example`). The LLM keys stay in the Python processes.
+
+## Sign-in
+
+- **Google is real:** the button calls `signIn("google")` (scopes `openid email profile`). Config in `auth.ts`, route `app/api/auth/[...nextauth]/route.ts`. The Google client needs the redirect URI `http://localhost:3000/api/auth/callback/google`.
+- After the redirect, `ScoutApp` turns the Auth.js session (real name and email) into the existing `Session` (provider `google`) and goes on to the socials step. Sign-out also ends the Auth.js session.
+- Instagram, X, Facebook and email stay demo and are labelled "(Demo)" in the UI.
 
 ## Integration contract for P3 (concierge)
 
@@ -50,11 +56,12 @@ P3 must provide:
 
 - `components/Dashboard.tsx`: `agent.setState({...state, profile})` before `copilotkit.runAgent()`; the profile is in the run input.
 - `components/ChooseEventTool.tsx`: `useHumanInTheLoop` for `choose_event`; `lib/choice-store.ts` lets the chat and the main card grid answer the same call exactly once.
+- `components/ConfirmSubmitTool.tsx`: `useHumanInTheLoop` for `confirm_submit` (args `{event_id, title, preview, link}`); returns `{event_id, confirmed_at}` on Submit or `{event_id, declined: true}` on Cancel.
 - `components/ScanPanel.tsx`: renders `progress` and `audit` only.
 
 ## Demo-only parts (say so in the pitch)
 
-- **Sign-in** (Google, Instagram, X, Facebook, email) is a demo: no OAuth, the session is in `sessionStorage`. Real login needs OAuth apps (Meta and X need app review).
+- **Sign-in** with Instagram, X, Facebook and email is a demo: no OAuth, the session is in `sessionStorage`. Real login needs OAuth apps (Meta and X need app review). Google is real, see Sign-in.
 - **"Connect" socials** only records the choice (labelled "Added (demo)"). Instagram and TikTok also preselect scan sources. X and Facebook are not in the shared `Platform` type and no scout reads them.
   The added socials go to the concierge as a hint in each scan message ("I use instagram, x; prefer events from those communities."). Recommendations from real follows and likes need official API access: roadmap.
 - **AI import:** copy a prompt into ChatGPT, Claude or Grok and paste the JSON reply back. Only preferences are taken; email and consent are always ignored.

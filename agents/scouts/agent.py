@@ -94,6 +94,8 @@ def _merge_scout_state(callback_context):
     s = callback_context.state
     s["audit"] = s.get("audit", []) + [e for p in PLATFORMS for e in s.get(f"temp:audit_{p}", [])]
     s["progress"] = [s[f"temp:progress_{p}"] for p in PLATFORMS if f"temp:progress_{p}" in s]
+    # this scan's source errors (e.g. "live data for Köln is loading"), for the concierge's answer
+    s["scan_notes"] = [e["note"] for p in PLATFORMS for e in s.get(f"temp:audit_{p}", []) if e["note"].startswith("error")]
 
 
 def _curator_instruction(ctx) -> str:
@@ -165,8 +167,9 @@ def _finalize_events(callback_context):
         e.ticket = None
         if _norm(e.signup_hint) not in _norm(text):
             e.signup_hint = ""
-        e.id = hashlib.sha1(str(e.source_url).encode()).hexdigest()[:12]
-        events.setdefault(_dedup_key(e), e)
+        key = _dedup_key(e)  # one page can list several events: the id needs title and day, not only the URL
+        e.id = hashlib.sha1(f"{e.source_url}|{key[0]}|{key[2]}".encode()).hexdigest()[:12]
+        events.setdefault(key, e)
     s["events"] = [e.model_dump(mode="json") for e in sorted(events.values(), key=lambda e: -e.match_score)]
 
 

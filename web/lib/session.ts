@@ -1,8 +1,8 @@
 import { siFacebook, siGoogle, siInstagram, siTiktok, siX, type SimpleIcon } from "simple-icons";
 import type { Platform } from "./types";
 
-// DEMO sign-in: no OAuth, no server. A session is a small record in sessionStorage.
-// Real provider login (Google OAuth, Meta/X app review) is roadmap, see web/README.md.
+// Google sign-in is real (Auth.js, see auth.ts); the other providers are demo: a session is a small record in sessionStorage.
+// Meta/X login needs app review: roadmap, see web/README.md.
 
 export type Provider = "google" | "instagram" | "x" | "facebook" | "email";
 export type Social = "instagram" | "tiktok" | "x" | "facebook";

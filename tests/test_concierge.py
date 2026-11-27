@@ -69,7 +69,7 @@ def test_scout_result_is_replaced_by_json_events_from_state():
     ctx = _ctx(None)
     raw = [object()]  # stands in for the HttpUrl objects ADK puts into the result
     out = concierge._json_safe_scouts(SimpleNamespace(name="scout_pipeline"), {}, ctx, raw)
-    assert out == {"events": ctx.state["events"]} and json.dumps(out)
+    assert out == {"events": ctx.state["events"], "scan_notes": []} and json.dumps(out)
     assert concierge._json_safe_scouts(SimpleNamespace(name="enroll"), {}, ctx, {"x": 1}) is None
 
 
@@ -100,3 +100,69 @@ def test_enroll_unknown_is_manual_without_draft_and_a2a(monkeypatch):
         function_response=types.FunctionResponse(name="choose_event", response=_click_for(ctx, 2)))])))
     result, calls = _run(ctx, monkeypatch)
     assert result["status"] == "manual" and "draft" not in result["message"].lower() and calls == []
+
+
+# --- web_form: preview, confirm_submit, submit ---
+def _web_ctx(consent=True):
+    ctx = _ctx(None, profile={**PROFILE, "consent_enrollment": consent})
+    ev = ctx.state["events"][2]  # stub event without sign-up
+    ev.update(signup="web_form", registration_url="https://forms.example.org/register")
+    return ctx, ev["id"]
+
+
+def _answer(ctx, name, response):
+    part = types.Part(function_response=types.FunctionResponse(name=name, response=response))
+    ctx.session.events.append(AdkEvent(author="user", content=types.Content(role="user", parts=[part])))
+
+
+def _runs(ctx, monkeypatch, replies):
+    calls = []
+
+    async def fake_run_async(*, args, tool_context):
+        calls.append(json.loads(args["request"]))
+        return replies[len(calls) - 1]
+
+    monkeypatch.setattr(concierge._enrollment, "run_async", fake_run_async)
+    return calls
+
+
+def test_web_form_without_consent_stays_manual_link(monkeypatch):
+    ctx, eid = _web_ctx(consent=False)
+    _answer(ctx, "choose_event", {"event_id": eid, "approved_at": "2026-11-21T14:05:00+01:00"})
+    calls = _runs(ctx, monkeypatch, [])
+    assert asyncio.run(concierge.enroll(ctx))["status"] == "manual" and calls == []
+
+
+def test_web_form_preview_then_confirmed_submit(monkeypatch):
+    ctx, eid = _web_ctx()
+    _answer(ctx, "choose_event", {"event_id": eid, "approved_at": "2026-11-21T14:05:00+01:00"})
+    calls = _runs(ctx, monkeypatch, [json.dumps({"event_id": eid, "status": "needs_confirmation", "message": "Planned: Lea"}),
+                                    json.dumps({"event_id": eid, "status": "registered", "message": "done"})])
+    first = asyncio.run(concierge.enroll(ctx))
+    assert first["status"] == "needs_confirmation" and calls[0]["confirmed_at"] is None
+    assert ctx.state["enrollments"][eid] == "needs_confirmation"
+    _answer(ctx, "confirm_submit", {"event_id": eid, "confirmed_at": "2026-11-21T14:06:00+01:00"})
+    second = asyncio.run(concierge.enroll(ctx))
+    assert second["status"] == "registered" and calls[1]["confirmed_at"].startswith("2026-11-21T14:06")
+    assert "error" in asyncio.run(concierge.enroll(ctx))  # registered: no third run
+
+
+def test_web_form_declined_confirmation_sends_nothing(monkeypatch):
+    ctx, eid = _web_ctx()
+    _answer(ctx, "choose_event", {"event_id": eid, "approved_at": "2026-11-21T14:05:00+01:00"})
+    calls = _runs(ctx, monkeypatch, [json.dumps({"event_id": eid, "status": "needs_confirmation", "message": "Planned"})])
+    asyncio.run(concierge.enroll(ctx))
+    _answer(ctx, "confirm_submit", {"event_id": eid, "declined": True})
+    out = asyncio.run(concierge.enroll(ctx))
+    assert "Not submitted" in out["message"] and len(calls) == 1
+    assert ctx.state["enrollments"][eid] == "needs_confirmation"
+
+
+def test_confirmation_for_another_event_is_ignored(monkeypatch):
+    ctx, eid = _web_ctx()
+    _answer(ctx, "choose_event", {"event_id": eid, "approved_at": "2026-11-21T14:05:00+01:00"})
+    calls = _runs(ctx, monkeypatch, [json.dumps({"event_id": eid, "status": "needs_confirmation", "message": "P"})] * 2)
+    asyncio.run(concierge.enroll(ctx))
+    _answer(ctx, "confirm_submit", {"event_id": "other", "confirmed_at": "2026-11-21T14:06:00+01:00"})
+    asyncio.run(concierge.enroll(ctx))
+    assert calls[1]["confirmed_at"] is None

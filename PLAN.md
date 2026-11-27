@@ -147,7 +147,7 @@ Each phase gives a usable state. Size: S = up to 1 day, M = 2–4 days, L = 1 we
 - [x] Concierge `enroll`: for `none`, answer without A2A (calendar link with `make_calendar_link`, route, door price, status `not_needed`). This is the same short path as the "no consent" case.
 - [x] Enrollment agent: route by `signup` in code. The guardrail blocks `prepare_message_signup` if `signup != "message"`.
 - [x] Cards: one button per kind: "Just go · add to calendar", "Enroll me", "Buy ticket · price", "Prepare message", "Open post". New status texts.
-- [x] Tests: fictional fixture posts that copy the hard live cases (club night with door price → `none`, market with an entry fee → `none`, "Ticket Link in Bio" → `link_in_bio`, "Tickets nur per DM" → `message`). Do not copy the real live posts: they are third-party content (`fixtures/live_posts.json` is in `.gitignore` for this reason).
+- [x] Tests: fictional fixture posts that copy the hard live cases (club night with door price → `none`, market with an entry fee → `none`, "Ticket Link in Bio" → `link_in_bio`, "Tickets nur per DM" → `message`). Do not copy the real live posts: they are third-party content (`fixtures/live/` is in `.gitignore` for this reason).
 
 ### Phase 2 – Resolver: find the real sign-up path · M
 
@@ -156,7 +156,7 @@ Each phase gives a usable state. Size: S = up to 1 day, M = 2–4 days, L = 1 we
 - [x] Resolver step after the curator. It sets `signup` and `ticket`. When it finds no ticket shop and the post does not require a sign-up, it sets `none` with the hint "No presale found, entry probably at the door".
 - [x] Ticket stage A (deep link) on the card.
 - [x] Guard test with a poisoned ticket page fixture.
-- [ ] Measure: share of `unknown` on `fixtures/live_posts.json` before and after. Target below 10 %.
+- [ ] Measure: share of `unknown` on the live posts before and after. Target below 10 %.
 
 > Status 2026-11-23: Phase 1 is done. Phase 2 is done except for these points:
 > - The resolver step is a second `after_agent_callback` of the curator, not a separate `BaseAgent`.
@@ -195,19 +195,29 @@ Each phase gives a usable state. Size: S = up to 1 day, M = 2–4 days, L = 1 we
 
 Needed before agents send real sign-ups to real organizers. You can build Phase 4 in parallel against your own test forms.
 
-- [ ] Google OAuth sign-in (real name and email). Keep the other providers only as "demo" or remove them.
+- [x] Google OAuth sign-in (real name and email). Keep the other providers only as "demo" or remove them.
+  *Done 2026-11-27: Auth.js v5 (`web/auth.ts`), other providers labeled "Demo". Open: the concierge still trusts the
+  profile from the browser; check the Auth.js session in the CopilotKit route when there are other users.*
 - [ ] Persistent storage: ADK `DatabaseSessionService` (SQLite first, Cloud SQL or Firestore later). One table for enrollments and purchases, with the proof (`approved_at`, screenshot, confirmation).
 - [ ] *Postponed (decision 2026-11-27: free tiers only):* Paid Gemini tier or Vertex AI. On the free tier, Google
   can use the data. Until then: only the developer's own data and fictional test data, no other real users.
 - [ ] One env file per process (least privilege, open point from the README).
 - [ ] Consent levels in the profile: "free sign-ups after my click" (default on), "ask me before every payment" (always on). Privacy notice, "delete my data".
 - [ ] Live scan per request instead of the offline cache: Apify run on demand, cached, with a cost limit per user.
+  *Partly done 2026-11-27: any city. Cache per city (`fixtures/live/<slug>.json`, 24 h); a missing or stale cache
+  starts one Apify run in the background (max. 5 per day and server process); the user scans again after 1-3 min.
+  Open: limit per user, a job queue instead of the in-process thread.*
 
 ### Phase 4 – Browser agent for web forms (`web_form`) · M
 
-- [ ] Playwright MCP in a container, with the domain lock and the stop rules from section 4.
-- [ ] Screenshot before the submit → confirmation in the chat (frontend tool like `choose_event`) → submit → screenshot of the confirmation.
-- [ ] Tests against own test forms (Google Form, a small local HTML form, a pretix test shop if possible).
+- [x] ~~Playwright MCP in a container~~ Deterministic Python Playwright (`agents/enrollment/browser.py`), no LLM in the
+  browser, with the domain lock and the stop rules from section 4. *Done 2026-11-27. Open: runs on the host, not in a
+  container (`shortcut:`); a container when other users use the app.* Form choice: the first form with a name and an
+  email field (skips newsletter/search forms). Success only if the path changes or new success words appear.
+- [x] Screenshot before the submit → confirmation in the chat (frontend tool `confirm_submit`) → submit → screenshot of the confirmation
+  (`data/screenshots/`, git-ignored). Name and email always come from the request, never from the LLM.
+- [x] Tests against own test forms: local HTML forms via `page.route`, real headless Chromium (`tests/test_browser.py`).
+  Open: a live test against a real free registration page; a pretix test shop.
 
 ### Phase 5 – Tickets: assisted checkout (stage B) · L
 

@@ -23,7 +23,7 @@ export interface UserProfile {
 }
 
 export interface Event {
-  id: string;
+  id: string; // sha1(source_url|title|day)[:12]
   title: string;
   start: string | null; // ISO 8601
   venue: string | null;
@@ -41,7 +41,7 @@ export interface Event {
 
 export interface EnrollmentResult {
   event_id: string;
-  status: "registered" | "purchased" | "not_needed" | "manual" | "failed";
+  status: "registered" | "purchased" | "not_needed" | "manual" | "failed" | "needs_confirmation"; // needs_confirmation: web_form preview, user must confirm
   message: string;
   link: string | null;
   calendar_link: string | null;

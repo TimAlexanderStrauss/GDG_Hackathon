@@ -1,5 +1,6 @@
 "use client";
 
+import { signIn } from "next-auth/react";
 import { useState, type FormEvent } from "react";
 import { PROVIDERS, type Session } from "@/lib/session";
 import { BrandIcon } from "./BrandIcon";
@@ -12,19 +13,21 @@ const POINTS = [
   "Nothing is booked until you click Enroll me.",
 ];
 
-/** Demo sign-in: every option creates a local session only. */
+/** Google is real OAuth. Every other option creates a local session only. */
 export function AuthScreen({ onSignIn }: { onSignIn: (s: Session) => void }) {
   const [mode, setMode] = useState<"register" | "login">("register");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const viaProvider = (provider: Session["provider"]) =>
+  const viaProvider = (provider: Session["provider"]) => {
+    if (provider === "google") return void signIn("google"); // real OAuth; ScoutApp builds the Session after the redirect
     onSignIn({
       provider,
       socials: provider === "instagram" || provider === "x" || provider === "facebook" ? [provider] : [],
       socialsDone: false,
     });
+  };
 
   const viaEmail = (e: FormEvent) => {
     e.preventDefault();
@@ -85,14 +88,14 @@ export function AuthScreen({ onSignIn }: { onSignIn: (s: Session) => void }) {
             {PROVIDERS.map((p) => (
               <button key={p.id} type="button" className="btn btn-secondary w-full justify-start" onClick={() => viaProvider(p.id)}>
                 <BrandIcon icon={p.icon} />
-                <span className="flex-1 text-center">Continue with {p.label}</span>
+                <span className="flex-1 text-center">Continue with {p.label}{p.id !== "google" && " (Demo)"}</span>
                 <span className="w-5" aria-hidden />
               </button>
             ))}
           </div>
 
           <div className="my-6 flex items-center gap-3 text-xs font-semibold text-muted" aria-hidden>
-            <span className="h-px flex-1 bg-line" /> or with email <span className="h-px flex-1 bg-line" />
+            <span className="h-px flex-1 bg-line" /> or with email (Demo) <span className="h-px flex-1 bg-line" />
           </div>
 
           <form onSubmit={viaEmail} noValidate className="grid gap-4">
@@ -133,8 +136,8 @@ export function AuthScreen({ onSignIn }: { onSignIn: (s: Session) => void }) {
           </form>
 
           <p className="mt-6 rounded-[12px] bg-surface-2 px-4 py-3 text-xs text-muted">
-            <strong className="text-ink">Demo sign-in.</strong> No password and no real Google, Instagram, X or Facebook
-            login. Your session stays in this browser tab.
+            <strong className="text-ink">Google sign-in is real</strong> (name and email only). Instagram, X, Facebook and
+            email are <strong className="text-ink">Demo</strong>: no password and no real login.
           </p>
         </section>
       </div>

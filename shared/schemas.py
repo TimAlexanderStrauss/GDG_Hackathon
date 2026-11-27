@@ -45,7 +45,7 @@ class TicketOffer(BaseModel):
 
 class Event(BaseModel):
     """P2 (scouts/curator) produces it, P3 (display) shows it, P4 (enrollment) uses it."""
-    id: str  # sha1(source_url)[:12]
+    id: str  # sha1(source_url|title|day)[:12]: a web page can list several events
     title: str
     start: datetime | None = None
     venue: str | None = None
@@ -67,11 +67,12 @@ class EnrollmentRequest(BaseModel):
     attendee_name: str
     attendee_email: str
     approved_at: datetime  # time of the "Enroll me" click = audit proof
+    confirmed_at: datetime | None = None  # web_form: time of the "Submit" click after the preview; None = preview only
 
 
 class EnrollmentResult(BaseModel):
     event_id: str
-    status: Literal["registered", "purchased", "not_needed", "manual", "failed"]
+    status: Literal["registered", "purchased", "not_needed", "manual", "failed", "needs_confirmation"]  # needs_confirmation: web_form preview
     message: str  # confirmation or step-by-step instructions
     link: HttpUrl | None = None
     calendar_link: str | None = None  # Google Calendar template link

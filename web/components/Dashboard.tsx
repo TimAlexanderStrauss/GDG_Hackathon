@@ -7,6 +7,7 @@ import { AGENT_ID } from "@/lib/config";
 import type { AgentState, UserProfile } from "@/lib/types";
 import { ActivityPanel, ScanStatusLine } from "./Activity";
 import { ChooseEventTool } from "./ChooseEventTool";
+import { ConfirmSubmitTool } from "./ConfirmSubmitTool";
 import { EventCards } from "./EventCards";
 import { EventMap } from "./EventMap";
 
@@ -89,6 +90,7 @@ export function Dashboard({ profile, socials, scanRequest, onEdit }: Props) {
   return (
     <div className="flex-1 bg-surface-2">
       <ChooseEventTool state={state} consent={profile.consent_enrollment} />
+      <ConfirmSubmitTool />
 
       <div className="mx-auto max-w-[1600px] xl:grid xl:grid-cols-[minmax(0,1fr)_400px]">
         <main className="min-w-0 px-4 py-8 pb-28 sm:px-8 xl:pb-10" aria-labelledby="disc-title">

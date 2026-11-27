@@ -9,7 +9,8 @@ from mcp_servers.event_sources import server
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
     monkeypatch.setattr(server, "today", lambda: date(2026, 11, 21))  # demo day
-    monkeypatch.setattr(server, "FIXTURES", server.ROOT / "fixtures" / "posts.json")  # also with DEMO_MODE=live
+    monkeypatch.setattr(server, "FIXTURES", server.ROOT / "fixtures" / "posts.json")
+    monkeypatch.setattr(server, "LIVE", False)  # also with DEMO_MODE=live
     monkeypatch.setattr(server, "llm_flags", lambda text: False)  # regex layer only, no Gemini call
     monkeypatch.setattr(server, "GUARD", "gemini")  # also when .env says model_armor
 
@@ -47,3 +48,55 @@ def test_model_armor_guard_replaces_gemini_and_fails_closed(monkeypatch):
     monkeypatch.setattr(server, "armor_flags", down)
     with pytest.raises(ToolError, match="SOURCE_UNAVAILABLE"):
         server.search_posts("instagram", "Münster", ["ai"], 14)
+
+
+@pytest.fixture
+def live(monkeypatch, tmp_path):
+    from mcp_servers.event_sources import fetch_live
+    monkeypatch.setattr(server, "LIVE", True)
+    monkeypatch.setattr(fetch_live, "LIVE_DIR", tmp_path)
+    monkeypatch.setenv("APIFY_TOKEN", "x")
+    monkeypatch.setattr(server, "_running", set())
+    monkeypatch.setattr(server, "_fetches", {})
+    spawned = []
+    monkeypatch.setattr(server, "_spawn", spawned.append)  # no thread, no Apify
+    return tmp_path, spawned
+
+
+def test_live_missing_cache_starts_one_fetch(live):
+    _, spawned = live
+    for _ in range(3):  # three parallel scouts
+        with pytest.raises(ToolError, match="SOURCE_UNAVAILABLE: live data for Köln is loading"):
+            server.search_posts("instagram", "Köln", [], 14)
+    assert len(spawned) == 1
+
+
+def test_live_serves_cache_and_guard_still_runs(live, monkeypatch):
+    import json
+    import os
+    import time
+    tmp, spawned = live
+    post = {"platform": "instagram", "url": "https://www.instagram.com/p/a/", "text": "Party 25.11.",
+            "posted_at": "2026-11-20T10:00:00Z", "location": "Koeln Club"}
+    f = tmp / "koeln.json"
+    f.write_text(json.dumps([post]))
+    r = server.search_posts("instagram", "Köln", [], 14)
+    assert len(r.posts) == 1 and spawned == []  # fresh cache, no fetch
+    old = time.time() - 25 * 3600
+    os.utime(f, (old, old))
+    monkeypatch.setattr(server, "llm_flags", lambda text: True)  # guard blocks, also on stale data
+    r = server.search_posts("instagram", "Köln", [], 14)
+    assert r.posts == [] and r.blocked == 1 and len(spawned) == 1  # stale: served and refreshed
+
+
+def test_live_daily_cap_and_missing_token(live, monkeypatch):
+    _, spawned = live
+    monkeypatch.setattr(server, "MAX_FETCHES", 1)
+    with pytest.raises(ToolError, match="is loading"):
+        server.search_posts("instagram", "Köln", [], 14)
+    with pytest.raises(ToolError, match="daily limit"):
+        server.search_posts("instagram", "Berlin", [], 14)
+    assert len(spawned) == 1
+    monkeypatch.delenv("APIFY_TOKEN")
+    with pytest.raises(ToolError, match="APIFY_TOKEN"):
+        server.search_posts("instagram", "Hamburg", [], 14)

@@ -1,6 +1,7 @@
 "use client";
 
 import { CopilotKitProvider } from "@copilotkit/react-core/v2";
+import { signOut as authSignOut, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { RUNTIME_PATH } from "@/lib/config";
 import {
@@ -26,13 +27,14 @@ import { Dashboard } from "./Dashboard";
 import { Onboarding } from "./Onboarding";
 import { SocialsStep } from "./SocialsStep";
 
-// Flow: demo sign-in -> add socials (demo) -> preferences -> dashboard.
+// Flow: sign-in (Google real, others demo) -> add socials (demo) -> preferences -> dashboard.
 export function ScoutApp() {
   const [loaded, setLoaded] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [editing, setEditing] = useState(false);
   const [scanRequest, setScanRequest] = useState(0);
+  const auth = useSession();
 
   useEffect(() => {
     // Session storage is browser-only, so read it after mount (avoids hydration mismatch).
@@ -48,6 +50,20 @@ export function ScoutApp() {
     setSession(s);
   };
 
+  useEffect(() => {
+    // Back from the Google redirect: turn the Auth.js session into our Session (real name and email).
+    if (loaded && !session && auth.status === "authenticated") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      updateSession({
+        provider: "google",
+        name: auth.data.user?.name ?? undefined,
+        email: auth.data.user?.email ?? undefined,
+        socials: [],
+        socialsDone: false,
+      });
+    }
+  }, [loaded, session, auth.status, auth.data]);
+
   const finishSocials = (socials: Social[]) => session && updateSession({ ...session, socials, socialsDone: true });
 
   const submit = (d: ProfileDraft) => {
@@ -58,7 +74,8 @@ export function ScoutApp() {
     setScanRequest((n) => n + 1);
   };
 
-  const signOut = () => {
+  const signOut = async () => {
+    if (session?.provider === "google") await authSignOut({ redirect: false });
     clearAll();
     setSession(null);
     setProfile(null);
@@ -75,7 +92,7 @@ export function ScoutApp() {
       };
 
   let view: React.ReactNode = null;
-  if (!loaded) view = null;
+  if (!loaded || auth.status === "loading") view = null;
   else if (!session) view = <AuthScreen onSignIn={updateSession} />;
   else if (!session.socialsDone) view = <SocialsStep initial={session.socials} onDone={finishSocials} />;
   else if (!profile || editing)
@@ -117,7 +134,7 @@ export function ScoutApp() {
                 )}
                 <span
                   className="grid h-11 w-11 place-items-center rounded-full border border-line font-extrabold"
-                  title={`Signed in with ${providerLabel(session.provider)} (demo)`}
+                  title={`Signed in with ${providerLabel(session.provider)}${session.provider === "google" ? "" : " (demo)"}`}
                   aria-hidden
                 >
                   {profile?.display_name || session.name ? (
@@ -129,7 +146,7 @@ export function ScoutApp() {
                     </svg>
                   )}
                 </span>
-                <span className="sr-only">Signed in with {providerLabel(session.provider)} (demo)</span>
+                <span className="sr-only">Signed in with {providerLabel(session.provider)}{session.provider === "google" ? "" : " (demo)"}</span>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={signOut}>
                   Sign out
                 </button>

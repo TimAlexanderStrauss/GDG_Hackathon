@@ -16,6 +16,7 @@ const STATUS: Record<Status, { text: string; cls: string }> = {
   failed: { text: "Enrollment failed", cls: "bg-bad-soft text-bad" },
   not_needed: { text: "✓ No sign-up needed – just go", cls: "bg-accent-soft text-ink" },
   purchased: { text: "✓ Ticket bought", cls: "bg-accent-soft text-ink" },
+  needs_confirmation: { text: "Check the preview in the chat and confirm", cls: "bg-warn-soft text-warn" },
 };
 
 const TZ = "Europe/Berlin";
