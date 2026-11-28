@@ -21,11 +21,11 @@ from datetime import date, datetime, timedelta, timezone
 import httpx
 from pydantic import ValidationError
 
-from mcp_servers.event_sources.server import DATE, ROOT, in_window
+from mcp_servers.event_sources.server import ROOT, first_date, in_window
 from shared.schemas import SocialPost
 
 LIVE_DIR = ROOT / "fixtures" / "live"
-PER_PLATFORM = 12  # every post costs one guard call (Gemini) per scan, keep the rate limit in mind
+PER_PLATFORM = 20  # per run; every new post costs one guard call (verdicts are cached), keep the rate limit in mind
 
 
 def variants(city: str) -> list[str]:
@@ -70,12 +70,18 @@ def interest_tags(city: str, tags: list[str]) -> list[str]:
     return [_tag(variants(city)[0]) + t for t in tags]
 
 
+def _ig_image(item: dict) -> str | None:
+    """displayUrl, else the first of images (thumbnails/carousel) or of the child posts (Apify docs); some items lack displayUrl."""
+    kids = [c.get("displayUrl") for c in item.get("childPosts") or [] if isinstance(c, dict)]
+    return next((u for u in [item.get("displayUrl"), *(item.get("images") or []), *kids] if _link(u)), None)
+
+
 def instagram(city: str, tags: list[str]) -> list[dict]:
     items = _run("apify~instagram-hashtag-scraper", {"hashtags": tags, "resultsType": "posts", "resultsLimit": 30})
     # venue-only location names ("Sputnikhalle") would fail the server's city filter, the curator checks the city
     return [{"platform": "instagram", "url": i.get("url"), "text": i.get("caption") or "", "posted_at": i.get("timestamp"),
              "location": loc if (loc := i.get("locationName")) and any(c in loc.lower() for c in variants(city)) else None,
-             "owner": i.get("ownerUsername")}  # popped in main(): bio links are fetched only for the posts select keeps
+             "owner": i.get("ownerUsername"), "image_url": _ig_image(i)}  # popped in main(): bio links are fetched only for the posts select keeps
             for i in items]
 
 
@@ -92,14 +98,31 @@ def bio_links(owners: list[str]) -> dict[str, str]:
     except (httpx.HTTPError, ValueError) as e:
         print(f"instagram profiles: failed ({type(e).__name__}), posts keep no bio link", file=sys.stderr)
         return {}
-    return {i["username"]: u for i in items if i.get("username") and (u := _link(i.get("externalUrl")))}
+    # documented output: externalUrl (main link) and externalUrls [{url, title, ...}] (all links)
+    first = lambda i: i.get("externalUrl") or next((x.get("url") for x in i.get("externalUrls") or [] if isinstance(x, dict)), None)  # noqa: E731
+    return {i["username"]: u for i in items if i.get("username") and (u := _link(first(i)))}
+
+
+def tiktok_bio_links(owners: list[str]) -> dict[str, str]:
+    """username -> bio link of clockworks~tiktok-profile-scraper. Failure = no links, never an abort."""
+    if not owners:
+        return {}
+    try:  # Apify docs: input {"profiles": [usernames], "resultsPerPage"}, output authorMeta.name / authorMeta.bioLink
+        items = _run("clockworks~tiktok-profile-scraper", {"profiles": owners, "resultsPerPage": 1})
+    except (httpx.HTTPError, ValueError) as e:
+        print(f"tiktok profiles: failed ({type(e).__name__}), posts keep no bio link", file=sys.stderr)
+        return {}
+    metas = [i.get("authorMeta") or {} for i in items]
+    return {m["name"]: u for m in metas if m.get("name") and (u := _link(m.get("bioLink")))}
 
 
 def tiktok(city: str, tags: list[str]) -> list[dict]:
     items = _run("clockworks~tiktok-scraper", {"hashtags": tags, "resultsPerPage": 30})
     return [{"platform": "tiktok", "url": i.get("webVideoUrl"), "text": i.get("text") or "",
              "posted_at": i.get("createTimeISO"), "location": None,
-             "author_bio_url": _link((i.get("authorMeta") or {}).get("bioLink"))} for i in items]
+             "owner": (i.get("authorMeta") or {}).get("name"),  # Apify docs: authorMeta.name is the @username
+             "author_bio_url": _link((i.get("authorMeta") or {}).get("bioLink")),
+             "image_url": _link((i.get("videoMeta") or {}).get("coverUrl"))} for i in items]
 
 
 def web(city: str, query: str) -> list[dict]:
@@ -113,14 +136,16 @@ def web(city: str, query: str) -> list[dict]:
     items = data.get("web", []) if isinstance(data, dict) else data  # v2 docs show both shapes
     now = datetime.now(timezone.utc).isoformat()
     return [{"platform": "web", "url": i.get("url"), "posted_at": now, "location": None,
+             "image_url": _link((m := i.get("metadata") or {}).get("ogImage") or m.get("og:image")),
              "text": f"{i.get('title') or ''}\n{(i.get('markdown') or i.get('description') or '')[:4000]}"} for i in items]
 
 
-def add_bio_links(chosen: list[SocialPost], raw: list[dict]) -> list[SocialPost]:
+def add_bio_links(chosen: list[SocialPost], raw: list[dict], lookup=bio_links) -> list[SocialPost]:
+    """Second call for the owners of the kept posts that have no bio link yet (lookup: usernames -> {username: link})."""
     owner_of = {r.get("url"): r.get("owner") for r in raw}
-    links = bio_links(sorted({o for p in chosen if (o := owner_of.get(str(p.url)))}))
-    return [SocialPost.model_validate({**p.model_dump(), "author_bio_url": u}) if (u := links.get(owner_of.get(str(p.url)))) else p
-            for p in chosen]
+    links = lookup(sorted({o for p in chosen if not p.author_bio_url and (o := owner_of.get(str(p.url)))}))
+    return [SocialPost.model_validate({**p.model_dump(), "author_bio_url": u})
+            if not p.author_bio_url and (u := links.get(owner_of.get(str(p.url)))) else p for p in chosen]
 
 
 def select(raw: list[dict], today: date) -> list[SocialPost]:
@@ -133,9 +158,15 @@ def select(raw: list[dict], today: date) -> list[SocialPost]:
         except ValidationError:
             continue
         posted = p.posted_at if p.posted_at.tzinfo else p.posted_at.replace(tzinfo=timezone.utc)
-        if posted >= since and DATE.search(p.text) and in_window(p.text, today, 60):
+        if posted >= since and first_date(p.text, today) and in_window(p.text, today, 60):
             picked.setdefault(str(p.url), p)
     return sorted(picked.values(), key=lambda p: p.posted_at, reverse=True)[:PER_PLATFORM]
+
+
+def _text(source, arg) -> str:
+    if source is web:
+        return f"Web search: {arg}"
+    return f"{'Instagram' if source is instagram else 'TikTok'}: {', '.join('#' + t for t in arg[:3])}{' …' if len(arg) > 3 else ''}"
 
 
 def fetch(city: str, tags: list[str] = (), add: bool = False) -> int:
@@ -151,10 +182,21 @@ def fetch(city: str, tags: list[str] = (), add: bool = False) -> int:
     if tags:
         it = interest_tags(city, tags)
         runs += [(instagram, it), (tiktok, it), (web, f"Events {city} {' '.join(tags)}")]
+    runs = [r for r in runs if r[0] is not web or os.getenv("FIRECRAWL_API_KEY")]
+    steps = len(runs) + sum(r[0] in (instagram, tiktok) for r in runs)  # every run, plus the bio links after each Instagram/TikTok run
+    started, step = (store.get("fetches", slug(city)) or {}).get("started", time.time()), 0
+
+    def progress(text: str) -> None:  # shown to the user while the scan waits; a failure here must not stop the fetch
+        nonlocal step
+        try:
+            store.put("fetches", f"progress-{slug(city)}", {"started": started, "step": step, "steps": steps, "text": text})
+        except Exception as e:
+            print(f"progress not written ({type(e).__name__})", file=sys.stderr)
+        step += 1
+
     posts, answered = [], 0
     for source, arg in runs:  # every run selects on its own: interest posts do not compete with the city posts
-        if source is web and not os.getenv("FIRECRAWL_API_KEY"):
-            continue
+        progress(_text(source, arg))
         try:
             raw = source(city, arg)
         except (httpx.HTTPError, ValueError) as e:  # ValueError: bad JSON
@@ -163,7 +205,11 @@ def fetch(city: str, tags: list[str] = (), add: bool = False) -> int:
         answered += 1
         chosen = select(raw, date.today())
         if source is instagram:
+            progress("Instagram: looking up bio links")
             chosen = add_bio_links(chosen, raw)
+        elif source is tiktok:
+            progress("TikTok: looking up bio links")
+            chosen = add_bio_links(chosen, raw, tiktok_bio_links)
         print(f"{source.__name__}: {len(raw)} fetched, {len(chosen)} kept", file=sys.stderr)
         posts += chosen
     if not answered:
@@ -177,9 +223,12 @@ def fetch(city: str, tags: list[str] = (), add: bool = False) -> int:
     # an empty list is written too: a small city with no posts is known for 24 h instead of a new Apify run per scan
     # shortcut: an --add run renews the file time, so the city posts can get up to 48 h old; fine while adds are rare
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps([p.model_dump(mode="json") for p in posts], ensure_ascii=False, indent=1))
+    step = steps
+    progress("Saving posts")
     known = (store.get("fetches", f"tags-{slug(city)}") or []) if add else []
+    # tags before the file: waiting scouts see "done" by the file time and must find the tags already fetched
     store.put("fetches", f"tags-{slug(city)}", list(dict.fromkeys(known + tags)))
+    out.write_text(json.dumps([p.model_dump(mode="json") for p in posts], ensure_ascii=False, indent=1))
     print(f"wrote {len(posts)} posts to {out}", file=sys.stderr)
     return len(posts)
 

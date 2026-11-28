@@ -84,13 +84,15 @@ def _fetch(url: str) -> tuple[str, str]:
 class _Page(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.ld, self.links, self._ld, self._href = [], [], False, None
+        self.ld, self.links, self._ld, self._href, self.og = [], [], False, None, None
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         if tag == "script" and (a.get("type") or "").lower() == "application/ld+json":
             self._ld = True
             self.ld.append("")
+        elif tag == "meta" and a.get("property") == "og:image" and a.get("content") and not self.og:
+            self.og = a["content"]
         elif tag == "a" and a.get("href"):
             self._href = [a["href"], ""]
             self.links.append(self._href)
@@ -179,7 +181,12 @@ def _out(signup="unknown", ticket=None, reg=None, note="") -> dict:
     return {"signup": signup, "ticket": ticket, "registration_url": reg, "note": note}
 
 
-def _best_link(links, base: str, title: str, start: str) -> str | None:
+def _reg_host(url: str) -> str:
+    # shortcut: last two host labels, wrong for co.uk-style suffixes; use a public suffix list if that matters
+    return ".".join((urlsplit(url).hostname or "").split(".")[-2:])
+
+
+def _best_link(links, base: str, title: str, start: str, min_score: int = 1, not_host: str | None = None) -> str | None:
     want, sd = _tokens(title), _day(start)
     pats = [sd] if sd else []
     if sd:
@@ -187,11 +194,11 @@ def _best_link(links, base: str, title: str, start: str) -> str | None:
     best, best_s = None, 0
     for href, text in links:
         u = urljoin(base, href.strip())
-        if urlsplit(u).scheme != "https" or u == base:
+        if urlsplit(u).scheme != "https" or u == base or (not_host and _reg_host(u) == not_host):
             continue
         hay = f"{text} {u}".casefold()
         s = len(want & _tokens(hay)) + 2 * any(p in hay for p in pats)
-        if s > best_s:
+        if s > best_s and s >= min_score:
             best, best_s = u, s
     return best
 
@@ -276,5 +283,155 @@ def resolve_signup(url: str, title: str = "", start: str = "") -> dict:
         res = _out(note=f"not resolved: {e}")
     except Exception as e:  # never raise into the agent
         res = _out(note=f"not resolved: {type(e).__name__}")
+    store.put("resolver", key, res)
+    return res
+
+
+GENERIC = re.compile(r"(open in|original|tickets?|more)\b", re.I)
+MD_IMG = re.compile(r"!\[[^\]]*\]\((https://[^)\s]+)")
+MD_LINK = re.compile(r"(?<!!)\[([^\]]*)\]\((https://[^)\s]+)")
+
+
+def _image(ev: dict | None, page: _Page, base: str) -> str | None:
+    img = (ev or {}).get("image")
+    for x in (img if isinstance(img, list) else [img]):
+        x = x.get("url") if isinstance(x, dict) else x
+        if isinstance(x, str) and urlsplit(urljoin(base, x)).scheme == "https":
+            return urljoin(base, x)
+    og = urljoin(base, page.og) if page.og else None
+    return og if og and urlsplit(og).scheme == "https" else None
+
+
+def _load(url: str, title: str, start: str) -> tuple[_Page, dict | None, str]:
+    html, final = _fetch(url)
+    page = _Page()
+    page.feed(html)
+    return page, _match(_events(page.ld), title, start), final
+
+
+def _title_pos(text: str, title: str) -> int:
+    """First place of the title that is not an image alt text ("![Title](…)" sits before the heading on listings)."""
+    hay, want, pos = text.casefold(), title.strip().casefold(), -1
+    while want and (pos := hay.find(want, pos + 1)) >= 0:
+        if not hay[max(0, pos - 2):pos] == "![":
+            return pos
+    return -1
+
+
+def _listing_image(text: str, title: str) -> str | None:
+    """Last markdown image shortly before the title: the event's own picture on a listing page."""
+    pos = _title_pos(text, title)
+    if pos < 0:
+        return None
+    imgs = [m[1] for m in MD_IMG.finditer(text[max(0, pos - 800):pos])
+            if not re.search(r"\.svg\b|icon|logo|sprite|badge", m[1], re.I)]
+    return imgs[-1] if imgs else None
+
+
+def _find_original(listing_url: str, text: str, title: str, start: str) -> dict:
+    agg = _reg_host(listing_url)
+    links = [(u, t) for t, u in MD_LINK.findall(text)]
+    cand = _best_link(links, listing_url, title, start, min_score=3)
+    if not cand and (pos := _title_pos(text, title)) >= 0:  # title as heading, detail link right after it
+        seg = re.split(r"\n#|\n!\[", text[pos + len(title.strip()):], maxsplit=1)[0]
+        if m := MD_LINK.search(seg):
+            cand = m[2]
+    if not cand:
+        return {"url": None, "image_url": None, "note": "no matching link on the listing page"}
+    if _reg_host(cand) == agg:  # block layout: title link, "Open in ...", then "Original listing" to the organiser
+        i = next(i for i, (u, _) in enumerate(links) if u == cand)
+        for u, t in links[i + 1:]:
+            if len(t.split()) >= 3 and not GENERIC.match(t.strip()):
+                break  # next event's title link
+            if _reg_host(u) != agg:
+                try:
+                    p2, ev2, final2 = _load(u, title, start)
+                except (_Fail, httpx.HTTPError):
+                    return {"url": u, "image_url": None, "note": "original link in the listing block, page not readable"}
+                return {"url": final2, "image_url": _image(ev2, p2, final2), "note": "original link in the listing block"}
+    try:
+        page, ev, final = _load(cand, title, start)
+    except (_Fail, httpx.HTTPError) as e:
+        return {"url": cand, "image_url": None, "note": f"candidate not readable: {e if isinstance(e, _Fail) else type(e).__name__}"}
+    img, nxt = _image(ev, page, final), None
+    if _reg_host(final) != agg:
+        return {"url": final, "image_url": img, "note": "candidate is on another host"}
+    if ev:
+        vals = [ev.get("url"), *(ev["sameAs"] if isinstance(ev.get("sameAs"), list) else [ev.get("sameAs")])]
+        offers = ev.get("offers")
+        vals += [o.get("url") for o in (offers if isinstance(offers, list) else [offers]) if isinstance(o, dict)]
+        nxt = next((v for v in vals if isinstance(v, str) and urlsplit(v).scheme == "https" and _reg_host(v) != agg), None)
+    nxt = nxt or _best_link(page.links, final, title, start, not_host=agg)  # one more hop at most
+    if not nxt:
+        return {"url": final, "image_url": img, "note": "no outbound link on the aggregator page"}
+    try:
+        p2, ev2, final2 = _load(nxt, title, start)
+    except (_Fail, httpx.HTTPError):
+        return {"url": nxt, "image_url": img, "note": "original not readable, image of the aggregator page"}
+    return {"url": final2, "image_url": _image(ev2, p2, final2) or img, "note": "original page read"}
+
+
+def find_original(listing_url: str, page_text: str, title: str = "", start: str = "") -> dict:
+    """Follows an aggregator's listing to the organiser's page: {url, image_url, note}. Plain HTTP, never raises."""
+    key = hashlib.sha1(json.dumps(["orig", listing_url, page_text, title, start]).encode()).hexdigest()
+    if (hit := store.get("resolver", key, TTL)) is not None:
+        return hit
+    try:
+        page_text = page_text.replace("\\", "")  # markdown escapes such as "\\|"
+        res = _find_original(listing_url, page_text, title, start)
+        res["image_url"] = res["image_url"] or _listing_image(page_text, title)
+    except Exception as e:
+        res = {"url": None, "image_url": None, "note": f"not resolved: {type(e).__name__}"}
+    store.put("resolver", key, res)
+    return res
+
+
+SEARCH = "https://api.firecrawl.dev/v2/search"
+SEARCH_PER_HOUR, SEARCH_TTL = 20, 7 * 86400
+SOCIAL = {"instagram.com", "tiktok.com", "facebook.com", "fb.com", "x.com", "twitter.com", "youtube.com", "youtu.be"}
+_search_calls: list[float] = []
+
+
+def search_original(title: str, venue: str = "", city: str = "", start: str = "", not_host: str = "") -> dict:
+    """Social list posts have no links: one Firecrawl search (results only) finds the organiser's page, then plain HTTP
+    reads its image. The result texts are untrusted: only code matching, never an LLM, never shown. Never raises."""
+    none = {"url": None, "image_url": None, "note": "no original found by search"}
+    if not os.getenv("FIRECRAWL_API_KEY") or not title.strip():
+        return {**none, "note": "search off"}
+    sd = _day(start)
+    key = hashlib.sha1(json.dumps(["search", title, sd, city]).encode()).hexdigest()
+    if (hit := store.get("resolver", key, SEARCH_TTL)) is not None:
+        return hit
+    _search_calls[:] = [t for t in _search_calls if time.time() - t < 3600]
+    if len(_search_calls) >= SEARCH_PER_HOUR:
+        return {**none, "note": f"search limit of {SEARCH_PER_HOUR} per hour reached"}
+    try:
+        _search_calls.append(time.time())
+        r = httpx.post(SEARCH, timeout=30, headers={"Authorization": f"Bearer {os.environ['FIRECRAWL_API_KEY']}"},
+                       json={"query": " ".join(x for x in (title, venue, city) if x and x.strip()), "limit": 5})
+        r.raise_for_status()
+        data = r.json().get("data") or []
+        items = data.get("web", []) if isinstance(data, dict) else data
+        want, res, best = _tokens(title), none, None
+        for i in items:
+            u = str(i.get("url") or "")
+            host = _reg_host(u)
+            hay = f"{i.get('title') or ''} {i.get('description') or ''}"
+            if (not u.startswith("https://") or host in SOCIAL or (not_host and host == not_host)
+                    or not want or len(want & _tokens(hay)) * 2 < len(want)):
+                continue
+            has_day = bool(sd) and (sd in hay or f"{sd[8:]}.{sd[5:7]}." in hay)
+            if best is None or (has_day and not best[1]):
+                best = (u, has_day)
+        if best:
+            img, url = None, best[0]
+            try:
+                page, ev, url = _load(best[0], title, start)
+                img = _image(ev, page, url)
+            except (_Fail, httpx.HTTPError):
+                pass
+            res = {"url": url, "image_url": img, "note": "original found via search"}
+    except Exception as e:
+        return {**none, "note": f"search failed: {type(e).__name__}"}  # not cached: may be temporary
     store.put("resolver", key, res)
     return res

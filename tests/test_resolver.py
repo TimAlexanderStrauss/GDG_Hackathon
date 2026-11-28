@@ -181,3 +181,107 @@ def test_no_key_no_firecrawl(fc, monkeypatch):
     monkeypatch.delenv("FIRECRAWL_API_KEY")
     r = resolver.resolve_signup("https://shop.example.org/e", TITLE, START)
     assert r["signup"] == "unknown" and r["note"] == "not resolved: HTTP 403" and not fc["fc"]
+
+
+# --- find_original: follows an aggregator's listing to the organiser's page ---
+LISTING = ("[Hamburg \\| Nebula Night Synthwave](https://links.agg.example/event/abc) Sat 5 Dec 20:00 "
+           "[Open in AggApp](https://links.agg.example/event/abc) [Original listing](https://lu.example.org/nebula)\n"
+           "[#4 Hardware Meetup Hamburg Special](https://links.agg.example/event/def) "
+           "[Original listing](https://other.example.org/hw)\n")
+LISTING_URL = "https://www.agg.example/events/hamburg"
+OG = '<html><head><meta property="og:image" content="https://img.example.org/n.jpg"></head><body></body></html>'
+
+
+def test_original_from_block_layout(web):
+    web["https://lu.example.org/nebula"] = OG
+    r = resolver.find_original(LISTING_URL, LISTING, TITLE, START)
+    assert r["url"] == "https://lu.example.org/nebula" and r["image_url"] == "https://img.example.org/n.jpg"
+    assert "https://other.example.org/hw" not in web["seen"]  # the next event's block is not read
+
+
+def test_original_via_aggregator_detail_page_jsonld(web):
+    md = f"[{TITLE}](https://www.agg.example/e/1) more text"
+    web["https://www.agg.example/e/1"] = (
+        '<script type="application/ld+json">{"@type":"Event","name":"Nebula Night Synthwave",'
+        '"startDate":"2026-12-05T20:00:00+01:00","url":"https://lu.example.org/nebula"}</script>')
+    web["https://lu.example.org/nebula"] = (
+        '<script type="application/ld+json">{"@type":"Event","name":"Nebula Night Synthwave",'
+        '"startDate":"2026-12-05","image":{"@type":"ImageObject","url":"https://img.example.org/ld.jpg"}}</script>' + OG)
+    r = resolver.find_original(LISTING_URL, md, TITLE, START)
+    assert r["url"] == "https://lu.example.org/nebula" and r["image_url"] == "https://img.example.org/ld.jpg"
+
+
+def test_original_via_outbound_link_on_aggregator_page(web):
+    md = f"[{TITLE}](https://www.agg.example/e/1)"
+    web["https://www.agg.example/e/1"] = '<a href="https://tickets.example.org/nebula">Tickets</a><a href="https://x.example.org/">Impressum</a>'
+    web["https://tickets.example.org/nebula"] = OG
+    r = resolver.find_original(LISTING_URL, md, TITLE, START)
+    assert r["url"] == "https://tickets.example.org/nebula" and r["image_url"] == "https://img.example.org/n.jpg"
+
+
+def test_no_matching_link(web):
+    r = resolver.find_original(LISTING_URL, "[Something else entirely](https://x.example.org/a)", TITLE, START)
+    assert r["url"] is None and r["image_url"] is None and web["seen"] == []
+
+
+def test_heading_shape_detail_link_and_listing_image(web):
+    md = ("![Banner](https://cdn.agg.example/img/banner.jpg)\n![x](https://cdn.agg.example/badge.svg)\n"
+          "### Nebula Night Synthwave\n- Music\n- 05.12.2026\n\nShort text.\n"
+          "[/events/n/#c1](https://www.agg.example/events/n/)\n\n![Other](https://cdn.agg.example/other.jpg)\n### Another Show\n")
+    web["https://www.agg.example/events/n/"] = '<a href="https://venue.example.org/nebula">Zum Veranstalter</a>'
+    web["https://venue.example.org/nebula"] = "<html><body>no image</body></html>"
+    r = resolver.find_original(LISTING_URL, md, TITLE, START)
+    # title tokens are not in the link text, but the detail link comes right after the heading
+    assert r["url"] == "https://venue.example.org/nebula" and r["image_url"] == "https://cdn.agg.example/img/banner.jpg"
+
+
+def test_listing_image_skips_the_title_in_an_image_alt_text():
+    from mcp_servers.event_sources.resolver import _listing_image
+    text = ("- ![Jazz am Kanal](https://cdn.example.org/jazz.jpg)\n© Foto\n### Jazz am Kanal\n- 05.12.2026\n"
+            "[/events/jazz-am-kanal/](https://listing.example.org/events/jazz-am-kanal/)")
+    assert _listing_image(text, "Jazz am Kanal") == "https://cdn.example.org/jazz.jpg"
+
+
+# --- search_original: social list posts have no links, one Firecrawl search finds the organiser's page ---
+@pytest.fixture
+def srch(web, monkeypatch):
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "fc-test")
+    resolver._search_calls.clear()
+    calls = {"n": 0, "results": [
+        {"url": "https://www.instagram.com/p/x/", "title": TITLE, "description": ""},
+        {"url": "https://www.agg.example/e/1", "title": TITLE, "description": ""},
+        {"url": "https://www.other.example/e", "title": "Unrelated gardening", "description": ""},
+        {"url": "https://lu.example.org/nebula", "title": "Nebula Night Synthwave Hamburg", "description": "2026-12-05"}]}
+
+    def post(url, **kw):
+        calls["n"] += 1
+        calls["json"] = kw["json"]
+        return httpx.Response(200, json={"data": {"web": calls["results"]}}, request=httpx.Request("POST", url))
+    monkeypatch.setattr(resolver.httpx, "post", post)
+    web["https://lu.example.org/nebula"] = OG
+    return calls
+
+
+def test_search_finds_original_and_skips_social_and_listing_domain(srch):
+    r = resolver.search_original(TITLE, "Club X", "Hamburg", START, not_host="agg.example")
+    assert r["url"] == "https://lu.example.org/nebula" and r["image_url"] == "https://img.example.org/n.jpg"
+    assert srch["json"]["query"] == f"{TITLE} Club X Hamburg" and "scrapeOptions" not in srch["json"]
+
+
+def test_search_token_mismatch_no_original(srch):
+    srch["results"] = [srch["results"][2]]
+    assert resolver.search_original(TITLE, "", "Hamburg", START)["url"] is None
+
+
+def test_search_cache_hit_no_second_search_also_for_nothing_found(srch):
+    srch["results"] = []
+    resolver.search_original(TITLE, "", "Hamburg", START)
+    assert resolver.search_original(TITLE, "x", "Hamburg", START)["url"] is None and srch["n"] == 1
+
+
+def test_search_budget_and_no_key(srch, monkeypatch):
+    resolver._search_calls[:] = [__import__("time").time()] * resolver.SEARCH_PER_HOUR
+    assert resolver.search_original(TITLE, "", "Hamburg", START)["url"] is None and srch["n"] == 0
+    resolver._search_calls.clear()
+    monkeypatch.delenv("FIRECRAWL_API_KEY")
+    assert resolver.search_original(TITLE, "", "Hamburg", START)["url"] is None and srch["n"] == 0

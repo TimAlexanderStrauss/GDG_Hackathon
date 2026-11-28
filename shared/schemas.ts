@@ -22,6 +22,11 @@ export interface UserProfile {
   consent_enrollment: boolean;
 }
 
+export interface Source {
+  platform: Platform;
+  url: string;
+}
+
 export interface Event {
   id: string; // sha1(source_url|title|day)[:12]
   title: string;
@@ -37,6 +42,10 @@ export interface Event {
   ticket: TicketOffer | null;
   match_score: number;
   match_reason: string;
+  summary: string; // 1-2 sentences from the post, plain text
+  image_url: string | null; // post image or og:image, CDN links can expire
+  bio_url: string | null; // account bio link
+  sources?: Source[]; // every post/page of this event (code merges duplicates); missing in older state
 }
 
 export interface EnrollmentResult {

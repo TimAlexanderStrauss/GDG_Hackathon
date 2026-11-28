@@ -24,7 +24,27 @@
 - **Interest tags in the live fetch.** The scouts choose hashtags from the interests in the city's language; the fetch
   adds city+interest hashtags (`muenstertechno`) and one Firecrawl search per tag set. New tags on a fresh cache start an
   `--add` fetch (merged into the cache, counts to the daily limit); a full refresh takes up to 6 known tags per city.
-  Not verified live yet.
+  A scan that starts such a fetch tells the user (scan_notes) to ask again in 1-3 min. Not verified live yet.
+- **Cards:** summary (extraction LLM, max. 300 chars), image (Instagram `displayUrl`, TikTok cover, og:image; code
+  copies it from the post) and an "Open bio link" button for posts with a bio link. The chat shows no second set of
+  cards, only a line and "None of these". Field names of Apify/Firecrawl not verified live yet.
+- **Card grid:** one card per event with several dates (date chips pick the date the buttons act on), a placeholder
+  header when a post has no image, top-k = full rows for the screen width (3 rows) and "Load more events". The date
+  filter reads month names too ("5. Dezember", "Dec 5th"); 20 posts per fetch run kept (was 12).
+- **Duplicates merged in code** (`_same_event` in agents/scouts/agent.py): same day, ≤ 60 min apart, and equal title
+  or same venue + a shared significant title word. The merged event keeps all `sources` and the best info of each
+  (signup, longest summary, first image/bio link). TikTok bio links via `clockworks~tiktok-profile-scraper`
+  (actor, input and fields checked against the Apify docs, not run live yet).
+- **Aggregator pages followed to the original** (`find_original` in resolver.py, plain HTTP, no LLM): a web post with
+  ≥ 2 extracted events is a listing; per event the code takes the outbound link in the event's block (mtheapp:
+  "Original listing" → luma/meetup/eventbrite) or the detail page and its JSON-LD/outbound link (hamburg-travel).
+  Card links and image then come from the original (fallback: the event's image on the listing, never the
+  listing's og:image), and the resolver looks for tickets there. Checked offline on the real Hamburg cache; the
+  page fetches of the originals are not verified live yet.
+  Social list posts (Instagram/TikTok, ≥ 2 events, no links) are listings too: `search_original` (one Firecrawl
+  search, results only, no LLM) finds the organiser's page for the first 12 listing events per scan (max 20
+  searches/h, 7-day cache); social hosts and the listing's own domain are skipped, ≥ half of the title tokens must
+  match. Not run live yet.
 - **Shared event catalog.** Events are extracted once per post and shared by all users (`data/cache.db`); per scan only
   the ranking for the user's interests runs. Guard verdicts and resolver results are cached there too.
 - **Sign-up kinds** (section 3) with the resolver (JSON-LD, Firecrawl fallback for shops like Eventim) and one card
@@ -54,7 +74,7 @@ event stays in the catalog until the post text changes (delete `data/cache.db` t
 Münster (target < 10 %, sample too small).
 
 **Next steps, in this order:**
-1. Re-test in the app: a new city such as Rheine (loading → `data/fetch-rheine.log` → scan again after 1–3 min →
+1. Re-test in the app: a new city such as Rheine (the scan waits, progress bar via `GET /progress`, `data/fetch-rheine.log` →
    events or "no posts"), "try Dortmund instead" in the chat (profile + header change, new scan), Münster (warm, fast);
    Google sign-out; profile still there after a concierge restart. Check the Apify usage after the test.
 2. Measure the `unknown` share over 3–4 cities (Phase 2 target).
@@ -245,7 +265,10 @@ Needed before agents send real sign-ups to real organizers. You can build Phase 
 - [ ] Consent levels in the profile: "free sign-ups after my click" (default on), "ask me before every payment" (always on). Privacy notice, "delete my data".
 - [ ] Live scan per request instead of the offline cache: Apify run on demand, cached, with a cost limit per user.
   *Partly done 2026-11-27: any city. Cache per city (`fixtures/live/<slug>.json`, 24 h); a missing or stale cache
-  starts one Apify run in the background (max. 5 per day and server process); the user scans again after 1-3 min.
+  starts one Apify run (max. 5 per day and server process); *2026-11-28: the scan now waits for it* (poll every 2 s, max. 240 s;
+  failure, daily limit or timeout: old cache, else SOURCE_UNAVAILABLE "cannot be loaded: <reason>"). Progress: `fetch_live`
+  writes `fetches/progress-<slug>`, the scout pipeline writes `progress/<user id>`, `GET /progress` (`shared/progress.py`)
+  returns `{active, pct, stage, text}`; the frontend polls it.
   Open: limit per user, a job queue instead of the in-process thread.*
 
 ### Phase 4 – Browser agent for web forms (`web_form`) · M

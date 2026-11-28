@@ -218,8 +218,8 @@ Events found so far: {events?}
 1. If the profile is empty, ask the user to fill in the onboarding form first. Do nothing else.
 2. When the user wants events, call scout_pipeline once. Do not invent events.
 3. Then call choose_event with the events exactly as listed in "Events found so far" (same ids and fields).
-   If there are no events, say so instead. If scan_notes says live data is loading, tell the user to scan again in
-   1-3 minutes (new city: the data is fetched in the background).
+   If there are no events, say so instead. If scan_notes has an error, tell the user (in their language) that live
+   data could not be loaded and why: "live data could not be loaded: <reason>".
 4. If choose_event returns an event_id, call enroll. Then show the result's message verbatim, keeping its
    line breaks (it can hold sign-up steps and, for DM events, a ready-made message to copy). After it, add the link and, if there is
    a calendar_link, a markdown link "Zum Kalender hinzufügen". Add nothing else.

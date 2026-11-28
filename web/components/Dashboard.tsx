@@ -10,6 +10,7 @@ import { ChooseEventTool } from "./ChooseEventTool";
 import { ConfirmSubmitTool } from "./ConfirmSubmitTool";
 import { EventCards } from "./EventCards";
 import { EventMap } from "./EventMap";
+import { ScanProgress } from "./ScanProgress";
 
 type Props = {
   profile: UserProfile;
@@ -128,6 +129,7 @@ export function Dashboard({ profile, socials, scanRequest, onEdit, onAgentProfil
             ))}
           </ul>
 
+          <ScanProgress isRunning={isRunning} />
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
             <ScanStatusLine state={state} isRunning={isRunning} />
             <button

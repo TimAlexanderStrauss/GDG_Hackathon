@@ -33,6 +33,7 @@ class SocialPost(BaseModel):
     posted_at: datetime
     location: str | None = None
     author_bio_url: HttpUrl | None = None  # bio link of the account, from the data provider
+    image_url: HttpUrl | None = None  # post image / video cover / og:image, from the data provider (CDN links expire)
 
 
 class TicketOffer(BaseModel):
@@ -41,6 +42,12 @@ class TicketOffer(BaseModel):
     price: str | None = None  # e.g. "10.00 EUR"
     availability: Literal["available", "sold_out", "unknown"] = "unknown"
     checked_at: datetime
+
+
+class Source(BaseModel):
+    """One post or page that announces an event."""
+    platform: Platform
+    url: HttpUrl
 
 
 class Event(BaseModel):
@@ -59,6 +66,10 @@ class Event(BaseModel):
     ticket: TicketOffer | None = None
     match_score: float = 0.0  # 0..1
     match_reason: str = ""  # "Matches: AI, evenings, Münster"
+    summary: str = ""  # 1-2 sentences from the post (LLM, plain text, shown as text only)
+    image_url: HttpUrl | None = None  # code copies it from the post, never from the LLM
+    bio_url: HttpUrl | None = None  # account bio link, code copies it from the post (for "Link in Bio" posts)
+    sources: list[Source] = []  # every post/page of this event (code merges duplicates), source_url is one of them
 
 
 class EnrollmentRequest(BaseModel):

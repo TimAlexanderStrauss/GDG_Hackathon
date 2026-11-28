@@ -10,6 +10,7 @@ from google.adk.apps import App, ResumabilityConfig
 from google.adk.sessions import DatabaseSessionService
 
 from agents.concierge.agent import root_agent
+from shared.progress import progress_for
 
 DEMO_USER = "demo_user"
 _USER_RE = re.compile(r"^(demo_user|google:[^\s@]+@[^\s@]+)$")
@@ -46,11 +47,18 @@ async def _read_user_header(request: Request, call_next):
         _header_user.reset(token)
 
 
+@app.get("/progress")  # the AG-UI endpoint is POST "/", no clash
+def progress() -> dict:
+    return progress_for(extract_user_id())
+
+
 agent = ADKAgent.from_app(
     App(name="event_scout", root_agent=root_agent, resumability_config=ResumabilityConfig(is_resumable=True)),
     user_id_extractor=extract_user_id,
     session_service=make_session_service(),
     # The cache cleanup after the timeout must only untrack sessions, never delete the persisted ones.
+    execution_timeout_seconds=900,  # a scan can wait 4 min for the live fetch
+    tool_timeout_seconds=600,
     delete_session_on_cleanup=False,
     save_session_to_memory_on_cleanup=False,
 )

@@ -213,3 +213,24 @@ h3 {
   outline: 2px solid var(--es-ink) !important;
   outline-offset: 2px;
 }
+
+/* Scan progress bar: moving shimmer on the fill, radar pulse, text fade-in (calm; reduced motion is off above) */
+@keyframes es-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@keyframes es-radar {
+  from { transform: scale(0.4); opacity: 0.7; }
+  to { transform: scale(1.6); opacity: 0; }
+}
+@keyframes es-fade {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+.es-bar-fill {
+  background-image: linear-gradient(90deg, var(--es-accent) 0%, #ff9a7a 25%, var(--es-accent) 50%, #ff9a7a 75%, var(--es-accent) 100%);
+  background-size: 200% 100%;
+  animation: es-shimmer 3s linear infinite;
+}
+.es-radar-ring { animation: es-radar 1.8s ease-out infinite; }
+.es-fade { animation: es-fade 0.35s ease-out; }

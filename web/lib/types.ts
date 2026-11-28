@@ -4,6 +4,7 @@ export type {
   EnrollmentResult,
   Event,
   Platform,
+  Source,
   UserProfile,
 } from "../../shared/schemas";
 

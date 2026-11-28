@@ -13,9 +13,10 @@ from sqlalchemy import Column, Float, MetaData, String, Table, Text, create_engi
 ROOT = Path(__file__).resolve().parents[1]
 _meta = MetaData()
 # guard: sha1(mode+text) -> bool | events: sha1(post url+text) -> list of finalized events | resolver: key -> result dict
-# fetches: city slug -> {started, failed?} | day-<date> -> number of live fetches started (see mcp_servers/event_sources)
-TABLES = {n: Table(n, _meta, Column("key", String(64), primary_key=True), Column("value", Text, nullable=False),
-                   Column("ts", Float, nullable=False)) for n in ("guard", "events", "resolver", "fetches")}
+# fetches: city slug -> {started, failed?} | day-<date> -> number of live fetches started (see mcp_servers/event_sources), progress-<slug> -> fetch progress
+# progress: user id -> {ts, city, stage, pct, text} of the running scan (shared/progress.py)
+TABLES = {n: Table(n, _meta, Column("key", String(255), primary_key=True), Column("value", Text, nullable=False),
+                   Column("ts", Float, nullable=False)) for n in ("guard", "events", "resolver", "fetches", "progress")}
 _engines: dict = {}  # per URL; tests clear it to simulate a new process
 
 

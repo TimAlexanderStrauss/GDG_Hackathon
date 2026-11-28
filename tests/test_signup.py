@@ -106,10 +106,10 @@ def test_scout_skip_is_decided_in_code():
 
 def test_scan_notes_hold_only_this_scans_errors():
     from agents.scouts.agent import _merge_scout_state
-    state = {"temp:audit_instagram": [{"note": "error: SOURCE_UNAVAILABLE: live data for Köln is loading"}],
+    state = {"temp:audit_instagram": [{"note": "error: SOURCE_UNAVAILABLE: live data for Köln cannot be loaded: the live fetch failed"}],
              "temp:audit_tiktok": [{"note": "tiktok Köln 14d #x: 3 posts, 0 blocked"}], "scan_notes": ["old"]}
     _merge_scout_state(SimpleNamespace(state=state))
-    assert state["scan_notes"] == ["error: SOURCE_UNAVAILABLE: live data for Köln is loading"]
+    assert state["scan_notes"] == ["error: SOURCE_UNAVAILABLE: live data for Köln cannot be loaded: the live fetch failed"]
 
 
 def test_events_from_one_page_get_different_ids():
@@ -160,7 +160,7 @@ def test_scout_stops_after_a_source_error_but_may_fix_invalid_input():
         return SimpleNamespace(agent_name="tiktok_scout", state={}, actions=SimpleNamespace(skip_summarization=False))
     err = lambda text: {"isError": True, "content": [{"text": text}]}  # noqa: E731
     c = ctx()
-    _audit_search(SimpleNamespace(name="search_posts"), {}, c, err("SOURCE_UNAVAILABLE: live data for X is loading"))
+    _audit_search(SimpleNamespace(name="search_posts"), {}, c, err("SOURCE_UNAVAILABLE: live data for X cannot be loaded: x"))
     assert c.actions.skip_summarization is True  # no retry loop
     c = ctx()
     _audit_search(SimpleNamespace(name="search_posts"), {}, c, err("INVALID_INPUT: max. 3 hashtags"))
@@ -173,3 +173,62 @@ def test_same_event_with_differently_written_venue_is_one_event():
               source_url="https://x.example/1", start="2026-11-27T15:00:00+01:00")
     b = a.model_copy(update={"venue": "Cuba Club Münster, Achtermannstraße", "source_url": "https://x.example/2"})
     assert _dedup_key(a) == _dedup_key(b)
+
+
+def test_image_and_bio_come_from_the_post_not_from_the_llm(monkeypatch):
+    import asyncio
+
+    from agents.scouts import agent
+    monkeypatch.setattr(agent, "resolve_signup", lambda *a: {"signup": "unknown"})
+    url = "https://www.instagram.com/p/A/"
+    got = run({url: CLUB}, **{url: {"image_url": "https://evil.example/x.png", "bio_url": "https://evil.example/b",
+                                    "summary": "x" * 400}})[0]
+    assert got["image_url"] is None and got["bio_url"] is None and len(got["summary"]) == 300
+    state = {"temp:posts_instagram": [{"url": url, "text": "x", "image_url": "https://cdn.example/a.jpg",
+                                       "author_bio_url": "https://bio.example/a"}], "events": [got, {**got, "id": "2", "source_url": "https://www.instagram.com/p/Z/", "image_url": "https://evil.example/x.png"}]}
+    asyncio.run(agent._resolve_signups(SimpleNamespace(state=state)))
+    assert state["events"][0]["image_url"] == "https://cdn.example/a.jpg" and state["events"][0]["bio_url"] == "https://bio.example/a"
+    assert state["events"][1]["image_url"] is None  # post without image: the LLM value is overwritten
+
+
+def test_listing_events_get_original_and_never_the_listing_image(monkeypatch):
+    import asyncio
+    from agents.scouts import agent
+    L, S = "https://www.agg.example/events/hamburg", "https://www.solo.example/e"
+    monkeypatch.setattr(agent, "find_original", lambda url, text, title, start: {
+        "url": "https://lu.example.org/a", "image_url": "https://img.example.org/a.jpg", "note": ""}
+        if title == "A" else {"url": None, "image_url": None, "note": ""})
+    monkeypatch.setattr(agent, "resolve_signup", lambda url, *a: {"signup": "web_form", "registration_url": url, "ticket": None})
+    posts = [{"url": u, "text": "x", "image_url": "https://agg.example/ad.png"} for u in (L, S)]
+    mk = lambda i, t, u: {"id": i, "title": t, "platform": "web", "source_url": u, "signup": "unknown",
+                          "sources": [{"platform": "web", "url": u}]}
+    state = {"temp:posts_web": posts, "temp:listings": [L],
+             "events": [mk("1", "A", L), mk("2", "B", L), mk("3", "C", S)]}
+    asyncio.run(agent._resolve_signups(SimpleNamespace(state=state)))
+    a, b, c = state["events"]
+    assert a["source_url"] == "https://lu.example.org/a" and a["image_url"] == "https://img.example.org/a.jpg"
+    assert [x["url"] for x in a["sources"]] == ["https://lu.example.org/a"] and a["id"] == "1"
+    assert a["signup"] == "web_form"  # normal resolver ran on the found url
+    assert b["source_url"] == L and b["image_url"] is None
+    assert c["image_url"] == "https://agg.example/ad.png"  # single-event page is no listing
+    assert any("original found: lu.example.org" in e["note"] for e in state["audit"])
+
+
+def test_social_listing_uses_search_for_first_12_events_only(monkeypatch):
+    import asyncio
+    from agents.scouts import agent
+    L = "https://www.instagram.com/p/list/"
+    searched = []
+    monkeypatch.setattr(agent, "search_original", lambda title, venue, city, start, host: searched.append(title) or {
+        "url": "https://lu.example.org/" + title, "image_url": "https://img.example.org/a.jpg", "note": ""})
+    monkeypatch.setattr(agent, "resolve_signup", lambda url, *a: {"signup": "unknown"})
+    state = {"temp:posts_instagram": [{"url": L, "text": "x", "image_url": "https://insta.example/list.jpg"}],
+             "temp:listings": [L],
+             "events": [{"id": str(i), "title": f"T{i}", "platform": "instagram", "source_url": L, "signup": "unknown",
+                         "sources": [{"platform": "instagram", "url": L}]} for i in range(14)]}
+    asyncio.run(agent._resolve_signups(SimpleNamespace(state=state)))
+    ev = state["events"]
+    assert searched == [f"T{i}" for i in range(12)] or sorted(searched) == sorted(f"T{i}" for i in range(12))
+    assert ev[0]["source_url"] == "https://lu.example.org/T0" and ev[0]["image_url"] == "https://img.example.org/a.jpg"
+    assert ev[13]["source_url"] == L and ev[13]["image_url"] is None  # never the list graphic
+    assert any("via search: lu.example.org" in e["note"] for e in state["audit"])

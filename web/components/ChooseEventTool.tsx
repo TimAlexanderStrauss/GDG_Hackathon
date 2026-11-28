@@ -6,7 +6,6 @@ import { z } from "zod";
 import { answerChoice, offerChoice, useChoice, withdrawChoice } from "@/lib/choice-store";
 import { AGENT_ID } from "@/lib/config";
 import type { AgentState, ChooseEventResponse, Event } from "@/lib/types";
-import { EventCards } from "./EventCards";
 
 // Loose schema: the agent's Event objects are validated by P2/P3 against shared/schemas.py.
 const params = z.object({
@@ -35,8 +34,6 @@ export function ChooseEventTool({ state, consent }: { state: AgentState; consent
             events={events}
             respond={props.respond}
             done={props.status === "complete"}
-            state={state}
-            consent={consent}
           />
         );
       },
@@ -51,15 +48,11 @@ function ChoiceInChat({
   events,
   respond,
   done,
-  state,
-  consent,
 }: {
   toolCallId: string;
   events: Event[];
   respond?: (r: unknown) => Promise<void>;
   done: boolean;
-  state: AgentState;
-  consent: boolean;
 }) {
   const { answered } = useChoice();
   const answer = answered[toolCallId];
@@ -89,14 +82,9 @@ function ChoiceInChat({
         </p>
       ) : (
         <>
-          <p className="text-sm text-muted">Pick an event here or in the Events panel.</p>
-          <EventCards
-            events={events}
-            enrollments={state.enrollments}
-            consent={consent}
-            compact
-            toolCallId={toolCallId}
-          />
+          <p className="text-sm text-muted">
+            Found {events.length} event{events.length === 1 ? "" : "s"} – pick one in the Events panel.
+          </p>
           <button
             type="button"
             className="btn btn-secondary w-full"
