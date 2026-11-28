@@ -219,7 +219,10 @@ Events found so far: {events?}
 2. When the user wants events, call scout_pipeline once. Do not invent events.
 3. Then call choose_event with the events exactly as listed in "Events found so far" (same ids and fields).
    If there are no events, say so instead. If scan_notes has an error, tell the user (in their language) that live
-   data could not be loaded and why: "live data could not be loaded: <reason>".
+   data could not be loaded and why: "live data could not be loaded: <reason>". If scan_notes has a warning, say
+   that no new posts could be fetched (with the reason, e.g. the daily limit) and which interests were not searched.
+   If scan_notes says no event matches the interests well, say that clearly first: nothing fitting was found, the
+   cards only show other events in the city. Never call such events matches.
 4. If choose_event returns an event_id, call enroll. Then show the result's message verbatim, keeping its
    line breaks (it can hold sign-up steps and, for DM events, a ready-made message to copy). After it, add the link and, if there is
    a calendar_link, a markdown link "Zum Kalender hinzufügen". Add nothing else.

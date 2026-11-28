@@ -78,6 +78,41 @@ def test_bio_page_one_hop_only(web):
     assert "https://deep.example.org/nebula" not in web["seen"]
 
 
+BIO = "https://linktr.example.org/club"
+SHOW = "<html><body><h1>Nebula Night Synthwave</h1><p>%s</p>%s</body></html>"
+
+
+def test_bio_home_page_without_the_event_has_no_event_page(web):
+    web[BIO] = "<html><body><h1>Our company</h1><a href='https://linktr.example.org/about'>About</a> Anmeldung per Mail</body></html>"
+    assert resolver.resolve_signup(BIO, TITLE, START)["event_page"] is None
+
+
+def test_bio_page_links_to_event_page_with_title_date_and_signup(web):
+    web[BIO] = page("bio_page.html")
+    web["https://tickets.example.org/nebula"] = SHOW % ("Am 05.12.2026 ab 20 Uhr.", "<a href='/x'>Jetzt anmelden</a>")
+    r = resolver.resolve_signup(BIO, TITLE, START)
+    assert r["signup"] == "unknown" and r["event_page"] == "https://tickets.example.org/nebula"
+
+
+def test_event_page_without_signup_word_is_not_kept(web):
+    web[BIO] = page("bio_page.html")
+    web["https://tickets.example.org/nebula"] = SHOW % ("Am 5. Dezember ab 20 Uhr.", "")
+    assert resolver.resolve_signup(BIO, TITLE, START)["event_page"] is None
+
+
+def test_json_ld_event_without_offer_keeps_page_if_text_has_signup_word(web):
+    ld = '<script type="application/ld+json">{"@type":"Event","name":"Nebula Night Synthwave","startDate":"2026-12-05T20:00"}</script>'
+    web["https://a.example.org/t"] = f"<html><body>{ld}<p>Tickets an der Abendkasse</p></body></html>"
+    web["https://a.example.org/u"] = f"<html><body>{ld}<p>Nur Musik</p></body></html>"
+    assert resolver.resolve_signup("https://a.example.org/t", TITLE, START)["event_page"] == "https://a.example.org/t"
+    assert resolver.resolve_signup("https://a.example.org/u", TITLE, START)["event_page"] is None
+
+
+def test_tickets_result_has_event_page(web):
+    web["https://a.example.org/t"] = page("event_ticket.html")
+    assert resolver.resolve_signup("https://a.example.org/t", TITLE, START)["event_page"] == "https://a.example.org/t"
+
+
 def test_http_rejected(web):
     r = resolver.resolve_signup("http://a.example.org/t", TITLE, START)
     assert r["signup"] == "unknown" and not web["seen"]

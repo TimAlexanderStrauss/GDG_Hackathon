@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")  # the stdio client passes no API keys to this process
 FIXTURES = ROOT / "fixtures" / "posts.json"
 LIVE = os.getenv("DEMO_MODE") == "live"  # live: real posts per city, cached by fetch_live.py in fixtures/live/<slug>.json
-MAX_AGE, MAX_FETCHES = 24 * 3600, 5  # cache age in seconds, background fetches per day (all processes) (free Apify credit)
+MAX_AGE, MAX_FETCHES = 24 * 3600, 10  # cache age in seconds, live fetches per day (all processes) (free Apify credit)
 GUARD = os.getenv("GUARD", "gemini")  # gemini = LLM guard with LLM_SMALL_MODEL (Gemini or UniGPT) | model_armor
 NOTE = "Results may be incomplete"
 
@@ -230,7 +230,11 @@ async def _live_path(city: str, tags: list[str]) -> Path:
             break
     if why and not path.exists():
         raise ToolError(f"SOURCE_UNAVAILABLE: live data for {city} cannot be loaded: {why}")
-    return path
+    if why:  # old cache served: the user must learn that new posts / new interests were not fetched
+        since = time.strftime("%d.%m. %H:%M", time.localtime(path.stat().st_mtime))
+        return path, f"warning: no new live posts ({why}), using posts fetched {since}" + (
+            f"; interests not searched: {', '.join(tags)}" if tags else "")
+    return path, ""
 
 
 # --- Tool ------------------------------------------------------------------------------------
@@ -258,7 +262,7 @@ async def search_posts(platform: Platform, city: str, hashtags: list[str], days_
     if not city.strip() or len(city) > 60:
         raise ToolError("INVALID_INPUT: city must be 1..60 characters")
 
-    source = await _live_path(city, tags) if LIVE else FIXTURES
+    source, warning = await _live_path(city, tags) if LIVE else (FIXTURES, "")
     try:
         posts = [SocialPost.model_validate(p) for p in json.loads(source.read_text())]
     except (OSError, ValueError) as e:
@@ -291,7 +295,7 @@ async def search_posts(platform: Platform, city: str, hashtags: list[str], days_
         raise ToolError("SOURCE_UNAVAILABLE: guard model unavailable") from e
 
     clean = [p for p, bad in zip(candidates, verdicts) if not bad]
-    return SearchResult(posts=clean, blocked=sum(verdicts), note=NOTE)
+    return SearchResult(posts=clean, blocked=sum(verdicts), note=warning or NOTE)
 
 
 @server.tool()

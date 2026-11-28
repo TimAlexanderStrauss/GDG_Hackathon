@@ -57,4 +57,13 @@ def test_resolver_uses_the_bio_link_of_any_source(monkeypatch):
     state = {"temp:posts_tiktok": [{"url": f"{TT}1", "text": "x"}, {"url": f"{TT}2", "text": "x", "author_bio_url": "https://bio.example/b"}],
              "events": [m.model_dump(mode="json")]}
     asyncio.run(agent._resolve_signups(SimpleNamespace(state=state)))
-    assert calls == ["https://bio.example/b"] and state["events"][0]["bio_url"] == "https://bio.example/b"
+    assert calls == ["https://bio.example/b"] and state["events"][0]["bio_url"] is None
+
+
+def test_markdown_escapes_are_removed_from_shown_texts():
+    from agents.scouts.agent import _plain
+    from shared.schemas import Event
+    e = Event(id="x", title="Hamburg \\| Claude Code Build Day", venue="Café \\*Eck\\*", summary="1\\. Runde", platform="web",
+              source_url="https://example.org/e")
+    p = _plain(e)
+    assert (p.title, p.venue, p.summary) == ("Hamburg | Claude Code Build Day", "Café *Eck*", "1. Runde")

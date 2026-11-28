@@ -19,7 +19,7 @@
 **Works** (details in the README):
 - **Any city.** Live posts per city: Instagram + TikTok (Apify) and a web search (Firecrawl), cached 24 h in
   `fixtures/live/<city>.json`. The first scan of a new city starts the fetch as a detached process (`fetch_live`,
-  log in `data/fetch-<city>.log`; max. 5 per day, 10 min pause after a failed fetch, bookkeeping in `data/cache.db`;
+  log in `data/fetch-<city>.log`; max. 10 per day, 10 min pause after a failed fetch, bookkeeping in `data/cache.db`;
   a city without posts is cached as empty).
 - **Interest tags in the live fetch.** The scouts choose hashtags from the interests in the city's language; the fetch
   adds city+interest hashtags (`muenstertechno`) and one Firecrawl search per tag set. New tags on a fresh cache start an
@@ -47,6 +47,8 @@
   match. Not run live yet.
 - **Shared event catalog.** Events are extracted once per post and shared by all users (`data/cache.db`); per scan only
   the ranking for the user's interests runs. Guard verdicts and resolver results are cached there too.
+- **Bio link button only for a verified page:** the resolver returns `event_page` (page shows the title, the day and a
+  sign-up word; JSON-LD match, plain text, or Firecrawl markdown); `bio_url` is that page, else none. Offline tests only.
 - **Sign-up kinds** (section 3) with the resolver (JSON-LD, Firecrawl fallback for shops like Eventim) and one card
   button per kind.
 - **Google sign-in** (Auth.js) with a user id per Google account; sessions persist in SQLite (`data/sidequest.db`).

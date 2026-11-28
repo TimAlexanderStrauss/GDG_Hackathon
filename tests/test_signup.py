@@ -187,7 +187,7 @@ def test_image_and_bio_come_from_the_post_not_from_the_llm(monkeypatch):
     state = {"temp:posts_instagram": [{"url": url, "text": "x", "image_url": "https://cdn.example/a.jpg",
                                        "author_bio_url": "https://bio.example/a"}], "events": [got, {**got, "id": "2", "source_url": "https://www.instagram.com/p/Z/", "image_url": "https://evil.example/x.png"}]}
     asyncio.run(agent._resolve_signups(SimpleNamespace(state=state)))
-    assert state["events"][0]["image_url"] == "https://cdn.example/a.jpg" and state["events"][0]["bio_url"] == "https://bio.example/a"
+    assert state["events"][0]["image_url"] == "https://cdn.example/a.jpg" and state["events"][0]["bio_url"] is None  # resolver found no event page
     assert state["events"][1]["image_url"] is None  # post without image: the LLM value is overwritten
 
 
@@ -232,3 +232,35 @@ def test_social_listing_uses_search_for_first_12_events_only(monkeypatch):
     assert ev[0]["source_url"] == "https://lu.example.org/T0" and ev[0]["image_url"] == "https://img.example.org/a.jpg"
     assert ev[13]["source_url"] == L and ev[13]["image_url"] is None  # never the list graphic
     assert any("via search: lu.example.org" in e["note"] for e in state["audit"])
+
+
+def test_bio_url_only_for_a_verified_event_page(monkeypatch):
+    import asyncio
+    from agents.scouts import agent
+    ticket = {"url": "https://shop.example/t/1", "price": "10.00 EUR", "availability": "available", "checked_at": "2026-11-23T10:00:00Z"}
+    answers = {"https://bio.example/a": {"signup": "unknown", "event_page": "https://bio.example/a/event"},
+               "https://bio.example/b": {"signup": "tickets", "ticket": ticket, "event_page": "https://bio.example/b/e"},
+               "https://bio.example/c": {"signup": "unknown", "event_page": None}}
+    monkeypatch.setattr(agent, "resolve_signup", lambda url, *a: answers[url])
+    posts = [{"url": f"https://www.instagram.com/p/{k}/", "text": "x", "author_bio_url": f"https://bio.example/{k.lower()}"} for k in "ABCD"]
+    events = [{"id": k, "title": k, "platform": "instagram", "source_url": f"https://www.instagram.com/p/{k}/", "signup": kind,
+               "bio_url": "https://evil.example/b"} for k, kind in zip("ABCD", ["link_in_bio", "link_in_bio", "link_in_bio", "message"])]
+    state = {"temp:posts_instagram": posts, "events": events}
+    asyncio.run(agent._resolve_signups(SimpleNamespace(state=state)))
+    assert [e["bio_url"] for e in state["events"]] == ["https://bio.example/a/event", None, None, None]
+
+
+def test_weak_best_match_adds_a_scan_note_and_code_sets_the_platform():
+    from agents.scouts.agent import _merge_ranking, _merge_scout_state, _own_platform
+    state = {"temp:candidates": [{"id": "a", "title": "Rave"}], "temp:ranked": {"items": [{"id": "a", "match_score": 0.1}]}}
+    _merge_ranking(SimpleNamespace(state=state))
+    assert state["scan_notes"] == ["info: no event matches the interests well (best match 10 %)"]
+    state = {"temp:ranked": {"items": [{"id": "a", "match_score": 0.8}]}, "temp:candidates": [{"id": "a"}]}
+    _merge_ranking(SimpleNamespace(state=state))
+    assert "scan_notes" not in state
+    args = {"platform": "instagram"}
+    _own_platform(None, args, SimpleNamespace(agent_name="web_scout"))
+    assert args["platform"] == "web"
+    audit = {"temp:audit_web": [{"note": "web X 14d #a: 1 posts, 0 blocked; warning: no new live posts (daily limit)"}]}
+    _merge_scout_state(SimpleNamespace(state=audit))
+    assert audit["scan_notes"] == ["warning: no new live posts (daily limit)"]

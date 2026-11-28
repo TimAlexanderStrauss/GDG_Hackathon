@@ -256,3 +256,19 @@ def test_live_city_name_is_no_tag_and_no_loading_note(live):
     assert spawned == [] and r.note == server.NOTE  # city name ignored, nothing new
     r = sp("instagram", "Köln", ["koeln", "doppelkopf"], 14)
     assert spawned == [("Köln", ["doppelkopf"], True)] and r.note == server.NOTE
+
+
+def test_live_old_cache_with_daily_limit_warns_and_names_the_interests(live, monkeypatch):
+    import json
+    import os
+    tmp, spawned, _ = live
+    post = {"platform": "instagram", "url": "https://www.instagram.com/p/a/", "text": "Party 30.11.",
+            "posted_at": "2026-11-20T10:00:00Z", "location": "Koeln Club"}
+    f = tmp / "koeln.json"
+    f.write_text(json.dumps([post]))
+    old = time.time() - 25 * 3600
+    os.utime(f, (old, old))
+    monkeypatch.setattr(server, "MAX_FETCHES", 0)  # limit already used up today
+    r = sp("instagram", "Köln", ["doppelkopf"], 14)
+    assert len(r.posts) == 1 and spawned == []
+    assert r.note.startswith("warning: no new live posts (daily limit") and "interests not searched: doppelkopf" in r.note

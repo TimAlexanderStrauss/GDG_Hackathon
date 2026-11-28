@@ -23,7 +23,7 @@ from typing import Literal
 import httpx
 from pydantic import BaseModel
 
-from mcp_servers.event_sources.server import SUSPICIOUS, is_poisoned
+from mcp_servers.event_sources.server import _MONTHS, DAY_MONTH, MONTH_DAY, SUSPICIOUS, is_poisoned
 from shared import store
 from shared.llm import structured
 from shared.schemas import TicketOffer
@@ -32,6 +32,7 @@ MAX_BYTES, MAX_REDIRECTS, TIMEOUT, TTL = 1_000_000, 2, 10, 3600
 _transport = None  # tests inject httpx.MockTransport
 TOKEN = re.compile(r"[^\W_]{3,}")
 ISO_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+SIGNUP = re.compile(r"anmeld|registr|ticket|buch(?:en|ung)|reserv|sign ?up|rsvp|eintrittskart|teilnehm", re.I)
 FIRECRAWL = "https://api.firecrawl.dev/v2/scrape"
 FC_PER_HOUR = 10  # protects the free Firecrawl credits; the 1 h cache already stops repeats
 MAX_MD = 30_000  # shortcut: only the first 30k chars of the rendered page are checked, enough for one event page
@@ -84,10 +85,12 @@ def _fetch(url: str) -> tuple[str, str]:
 class _Page(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.ld, self.links, self._ld, self._href, self.og = [], [], False, None, None
+        self.ld, self.links, self._ld, self._href, self.og, self.text, self._skip = [], [], False, None, None, [], False
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        if tag in ("script", "style"):
+            self._skip = True
         if tag == "script" and (a.get("type") or "").lower() == "application/ld+json":
             self._ld = True
             self.ld.append("")
@@ -98,6 +101,8 @@ class _Page(HTMLParser):
             self.links.append(self._href)
 
     def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self._skip = False
         if tag == "script":
             self._ld = False
         elif tag == "a":
@@ -108,6 +113,8 @@ class _Page(HTMLParser):
             self.ld[-1] += data
         if self._href:
             self._href[1] += data
+        if not self._skip:
+            self.text.append(data)
 
 
 def _events(blocks: list[str]) -> list[dict]:
@@ -153,6 +160,19 @@ def _match(events: list[dict], title: str, start: str):
     return best
 
 
+def _has_day(text: str, sd: str) -> bool:
+    _, m, d = map(int, sd.split("-"))
+    return bool(sd in text or re.search(rf"\b0?{d}\.\s?0?{m}\.", text)
+                or any(int(a) == d and _MONTHS[b.lower()] == m for a, b, _ in DAY_MONTH.findall(text))
+                or any(int(b) == d and _MONTHS[a.lower()] == m for a, b, _ in MONTH_DAY.findall(text)))
+
+
+def _shows(text: str, title: str, start: str) -> bool:
+    """Plain text names this event (>= half of the title words, the day if known) and offers a sign-up word."""
+    want, sd = _tokens(title), _day(start)
+    return bool(want and len(want & _tokens(text)) * 2 >= len(want) and (not sd or _has_day(text, sd)) and SIGNUP.search(text))
+
+
 def _from_event(e: dict, page_url: str) -> dict:
     offers = e.get("offers")
     offer = next((o for o in (offers if isinstance(offers, list) else [offers]) if isinstance(o, dict)
@@ -177,8 +197,8 @@ def _from_event(e: dict, page_url: str) -> dict:
     return _out("tickets", ticket=t.model_dump(mode="json"), note="ticket offer read from the shop page")
 
 
-def _out(signup="unknown", ticket=None, reg=None, note="") -> dict:
-    return {"signup": signup, "ticket": ticket, "registration_url": reg, "note": note}
+def _out(signup="unknown", ticket=None, reg=None, note="", page=None) -> dict:
+    return {"signup": signup, "ticket": ticket, "registration_url": reg, "note": note, "event_page": page}
 
 
 def _reg_host(url: str) -> str:
@@ -242,16 +262,17 @@ def _rendered(url: str, title: str, start: str, why: str) -> dict:
         return _out(note=f"{why}; rendered page shows another event")
     if SUSPICIOUS.search(hay) or is_poisoned(hay):
         return _out(note="blocked: page looks like a prompt injection")
+    page = url if SIGNUP.search(hay) else None
     offer = _extract(md, title)
     p = (offer.price or "").strip() if offer else ""
     if not re.fullmatch(r"\d{1,5}(?:[.,]\d{1,2})?", p) or not re.search(
             rf"(?:€|EUR)\s*{re.escape(p)}(?![\d.,]*\d)|(?<![\d.,]){re.escape(p)}\s*(?:€|EUR)", md):
-        return _out(note=f"{why}; no ticket price found on the rendered page")
+        return _out(note=f"{why}; no ticket price found on the rendered page", page=page)
     price = Decimal(p.replace(",", "."))
     if price <= 0:
-        return _out(note=f"{why}; no ticket price found on the rendered page")
+        return _out(note=f"{why}; no ticket price found on the rendered page", page=page)
     t = TicketOffer(url=url, price=f"{price:.2f} EUR", availability=offer.availability, checked_at=datetime.now(timezone.utc))
-    return _out("tickets", ticket=t.model_dump(mode="json"), note="ticket offer read from the rendered shop page")
+    return _out("tickets", ticket=t.model_dump(mode="json"), note="ticket offer read from the rendered shop page", page=url)
 
 
 def _resolve(url: str, title: str, start: str, hop: bool) -> dict:
@@ -266,10 +287,18 @@ def _resolve(url: str, title: str, start: str, hop: bool) -> dict:
     page = _Page()
     page.feed(html)
     ev = _match(_events(page.ld), title, start)
+    text = " ".join(page.text)
     if ev:
-        return _from_event(ev, final)
+        r = _from_event(ev, final)
+        r["event_page"] = final if r["signup"] != "unknown" or SIGNUP.search(text) else None
+        return r
+    here = final if _shows(text, title, start) else None
     if hop and (nxt := _best_link(page.links, final, title, start)):
-        return _resolve(nxt, title, start, hop=False)
+        r = _resolve(nxt, title, start, hop=False)
+        if r["event_page"] or r["signup"] != "unknown" or not here:
+            return r
+    if here:
+        return _out(note="page shows the event with a sign-up word", page=here)
     return _rendered(final, title, start, why="no matching event found on the page")
 
 

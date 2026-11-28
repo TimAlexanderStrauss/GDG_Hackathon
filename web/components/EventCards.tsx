@@ -232,7 +232,7 @@ function Card({ group, enrollments, consent, onPurchased, active, choosable, cho
           <>
             {/* hints sit above the button, so the buttons of a card row stay on one line */}
             <p className="mb-1 text-center text-xs text-muted">
-              {e.bio_url ? "Sign-up link may be in the bio" : "No sign-up link found"}
+              {e.bio_url ? "Sign-up page found via the bio link" : "No sign-up link found"}
             </p>
             <a href={postUrl} target="_blank" rel="noopener noreferrer" className={`${btn} inline-flex items-center justify-center`}>
               Open post
@@ -244,7 +244,7 @@ function Card({ group, enrollments, consent, onPurchased, active, choosable, cho
                 rel="noopener noreferrer"
                 className="btn btn-secondary mt-2 inline-flex w-full items-center justify-center"
               >
-                Open bio link
+                Open sign-up page
               </a>
             )}
           </>
@@ -260,16 +260,21 @@ function Card({ group, enrollments, consent, onPurchased, active, choosable, cho
             }`}
           >
             {e.image_url && !failed.has(e.id) ? (
-              // eslint-disable-next-line @next/next/no-img-element -- external CDN, not optimizable
-              <img
-                src={e.image_url}
-                alt={e.title}
-                loading="lazy"
-                referrerPolicy="no-referrer"
-                className="-mx-6 -mt-6 mb-5 aspect-video max-w-none object-cover"
-                style={{ width: "calc(100% + 3rem)" }}
-                onError={() => setFailed((f) => new Set(f).add(e.id))}
-              />
+              // whole image (object-contain) on a blurred, zoomed copy of itself: square posters are not cropped
+              <div className="relative -mx-6 -mt-6 mb-5 aspect-video max-w-none overflow-hidden bg-surface-2" style={{ width: "calc(100% + 3rem)" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- external CDN, not optimizable */}
+                <img src={e.image_url} alt="" aria-hidden loading="lazy" referrerPolicy="no-referrer"
+                  className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
+                {/* eslint-disable-next-line @next/next/no-img-element -- external CDN, not optimizable */}
+                <img
+                  src={e.image_url}
+                  alt={e.title}
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  className="relative h-full w-full object-contain"
+                  onError={() => setFailed((f) => new Set(f).add(e.id))}
+                />
+              </div>
             ) : (
               <Placeholder e={e} />
             )}
