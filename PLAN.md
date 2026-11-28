@@ -45,6 +45,9 @@
   search, results only, no LLM) finds the organiser's page for the first 12 listing events per scan (max 20
   searches/h, 7-day cache); social hosts and the listing's own domain are skipped, ≥ half of the title tokens must
   match. Not run live yet.
+- **Web search per interest** (`web_topic`): one Firecrawl search per interest tag ("doppelkopf Münster", 3 results,
+  any age, ~5 credits) besides the city search; web pages are kept without a date (weekly dates), up to 8000 chars,
+  and the extraction turns recurring dates into occurrences in the next 21 days. Cards link one post per platform.
 - **Shared event catalog.** Events are extracted once per post and shared by all users (`data/cache.db`); per scan only
   the ranking for the user's interests runs. Guard verdicts and resolver results are cached there too.
 - **Bio link button only for a verified page:** the resolver returns `event_page` (page shows the title, the day and a

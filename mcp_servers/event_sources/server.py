@@ -166,7 +166,7 @@ def _start_fetch(city: str, tags: list[str] = (), add: bool = False) -> str | No
             return "the last fetch failed, next try in a few minutes"
         path = fetch_live.cache_path(city)
         done = path.exists() and path.stat().st_mtime >= rec.get("started", 0)
-        if "failed" not in rec and not done and now - rec.get("started", 0) < RUNNING_MAX:
+        if "failed" not in rec and "finished" not in rec and not done and now - rec.get("started", 0) < RUNNING_MAX:
             return None  # still running
         n = store.get("fetches", day) or 0
         if n >= MAX_FETCHES:
@@ -190,6 +190,8 @@ def _fetch_state(city: str, path: Path) -> str:
         return "idle"
     if path.exists() and path.stat().st_mtime >= rec["started"]:
         return "done"
+    if "finished" in rec:
+        return "idle"  # finished, but the file is gone (deleted by hand): a new fetch is needed
     return "running" if time.time() - rec["started"] < RUNNING_MAX else "idle"
 
 

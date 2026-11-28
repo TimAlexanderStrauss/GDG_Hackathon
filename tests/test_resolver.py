@@ -320,3 +320,16 @@ def test_search_budget_and_no_key(srch, monkeypatch):
     resolver._search_calls.clear()
     monkeypatch.delenv("FIRECRAWL_API_KEY")
     assert resolver.search_original(TITLE, "", "Hamburg", START)["url"] is None and srch["n"] == 0
+
+
+def test_content_image_fallback_skips_logos_banners_and_small_images():
+    from mcp_servers.event_sources.resolver import _Page, _image
+    html = ('<img class="logo" src="/logo.png"><img src="/icon.png" width="64" height="64">'
+            '<img src="https://x.example.org/banner.png" width="1320" height="264">'
+            '<img loading="lazy" src="/_cms/image/4585"><img src="/second.jpg">')
+    page = _Page()
+    page.feed(html)
+    assert _image(None, page, "https://theater.example.org/stueck.html") == "https://theater.example.org/_cms/image/4585"
+    page = _Page()
+    page.feed('<meta property="og:image" content="https://x.example.org/og.jpg"><img src="/a.jpg">')
+    assert _image(None, page, "https://x.example.org/") == "https://x.example.org/og.jpg"  # og:image still wins

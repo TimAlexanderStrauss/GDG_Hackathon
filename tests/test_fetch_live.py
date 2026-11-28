@@ -245,3 +245,23 @@ def test_instagram_image_falls_back_to_images_and_child_posts():
     assert _ig_image({"displayUrl": None, "images": ["junk", "https://cdn.example.org/b.jpg"]}) == "https://cdn.example.org/b.jpg"
     assert _ig_image({"childPosts": [{"displayUrl": "https://cdn.example.org/c.jpg"}]}) == "https://cdn.example.org/c.jpg"
     assert _ig_image({}) is None
+
+
+def test_one_web_search_per_interest_and_undated_web_pages_are_kept(monkeypatch, tmp_path):
+    import httpx
+    from mcp_servers.event_sources import fetch_live as f
+    monkeypatch.setattr(f, "LIVE_DIR", tmp_path)
+    monkeypatch.setenv("APIFY_TOKEN", "x")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "secret")
+    monkeypatch.setattr(f, "_run", lambda a, p: [])
+    sent = []
+
+    def post(url, **kw):
+        sent.append(kw["json"])
+        body = {"data": {"web": [{"url": f"https://club.example.org/{len(sent)}", "title": "Spieleabend",
+                                  "markdown": "Jeden Montag ab 19 Uhr, Eintritt frei"}]}}
+        return httpx.Response(200, json=body, request=httpx.Request("POST", url))
+    monkeypatch.setattr(f.httpx, "post", post)
+    assert f.fetch("Münster", ["doppelkopf", "brettspiele"]) == 3  # city search + one per interest, no date needed
+    assert [q["query"] for q in sent] == ["Events Veranstaltungen Münster", "doppelkopf Münster", "brettspiele Münster"]
+    assert "tbs" in sent[0] and "tbs" not in sent[1] and sent[1]["limit"] == 3

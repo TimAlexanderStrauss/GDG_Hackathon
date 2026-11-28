@@ -272,3 +272,11 @@ def test_live_old_cache_with_daily_limit_warns_and_names_the_interests(live, mon
     r = sp("instagram", "Köln", ["doppelkopf"], 14)
     assert len(r.posts) == 1 and spawned == []
     assert r.note.startswith("warning: no new live posts (daily limit") and "interests not searched: doppelkopf" in r.note
+
+
+def test_live_deleted_cache_after_a_finished_fetch_starts_a_new_one(live):
+    from shared import store
+    _, spawned, _ = live
+    store.put("fetches", "koeln", {"started": time.time() - 30, "finished": time.time() - 5})  # done, file deleted
+    assert len(sp("instagram", "Köln", [], 14).posts) == 1  # fixture's fake spawn writes the file
+    assert spawned == [("Köln", [], False)]

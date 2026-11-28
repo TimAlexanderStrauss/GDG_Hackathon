@@ -20,7 +20,7 @@ from google.genai import types
 from mcp import StdioServerParameters
 from pydantic import BaseModel, HttpUrl
 
-from mcp_servers.event_sources.resolver import _reg_host, find_original, resolve_signup, search_original
+from mcp_servers.event_sources.resolver import SOCIAL, _reg_host, find_original, page_image, resolve_signup, search_original
 from mcp_servers.event_sources.fetch_live import variants
 from shared import store
 from shared.llm import agent_model, structured
@@ -140,6 +140,8 @@ For every post in <posts> return one entry {{"url", "events"}}; events is empty 
 - Keep only real events that have not happened yet. Drop recaps of past events and posts that are no event.
   One entry per real event.
 - start: ISO 8601 with offset, e.g. 2026-11-24T19:00:00+01:00. Resolve relative dates ("morgen") from posted_at.
+- Recurring events ("jeden Montag ab 19 Uhr", "dienstags 19:00", "every first Friday"): one entry per occurrence
+  in the next 21 days from today, same title. Only if the page says the event takes place regularly now.
 - title, venue, city, price: short, from the post (price "free" if free).
 - platform and source_url: copy them exactly from the post (url).
 - registration_url: only a link that is written in the post text, else null.
@@ -422,6 +424,14 @@ async def _resolve_signups(callback_context):
                    f"Finding sign-up links ({n_done}/{len(events)})")
 
     async def resolve_one(e: Event) -> None:
+        try:
+            await signup_one(e)
+        finally:  # web pages without og:image: the first content picture (also for originals found above)
+            if e.image_url is None and _reg_host(str(e.source_url)) not in SOCIAL and str(e.source_url) not in listings:
+                if img := await asyncio.to_thread(page_image, str(e.source_url)):
+                    e.image_url = HttpUrl(img)
+
+    async def signup_one(e: Event) -> None:
         listing = str(e.source_url)
         found = None
         if listing in listings:

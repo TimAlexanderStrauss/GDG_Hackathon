@@ -86,6 +86,7 @@ class _Page(HTMLParser):
     def __init__(self):
         super().__init__()
         self.ld, self.links, self._ld, self._href, self.og, self.text, self._skip = [], [], False, None, None, [], False
+        self.imgs: list[dict] = []  # <img> attributes in page order, for the content-image fallback
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
@@ -99,6 +100,8 @@ class _Page(HTMLParser):
         elif tag == "a" and a.get("href"):
             self._href = [a["href"], ""]
             self.links.append(self._href)
+        elif tag == "img" and (a.get("src") or a.get("data-src")):
+            self.imgs.append(a)
 
     def handle_endtag(self, tag):
         if tag in ("script", "style"):
@@ -328,7 +331,37 @@ def _image(ev: dict | None, page: _Page, base: str) -> str | None:
         if isinstance(x, str) and urlsplit(urljoin(base, x)).scheme == "https":
             return urljoin(base, x)
     og = urljoin(base, page.og) if page.og else None
-    return og if og and urlsplit(og).scheme == "https" else None
+    return og if og and urlsplit(og).scheme == "https" else _content_image(page, base)
+
+
+def _size(v) -> int | None:
+    return int(v) if isinstance(v, str) and v.isdigit() else None
+
+
+def _content_image(page: _Page, base: str) -> str | None:
+    """First real picture in the page: no logo/icon/svg, not small, not a wide site banner (pages without og:image)."""
+    for a in page.imgs:
+        u = urljoin(base, a.get("src") or a.get("data-src") or "")
+        w, h = _size(a.get("width")), _size(a.get("height"))
+        if (urlsplit(u).scheme != "https" or re.search(r"\.svg\b|logo|icon|avatar|sprite|emoji|pixel", u + str(a.get("class")), re.I)
+                or (w and w < 200) or (h and h < 150) or (w and h and w > 3 * h)):
+            continue
+        return u
+    return None
+
+
+def page_image(url: str) -> str | None:
+    """Image of an event page (JSON-LD image, og:image or the first content picture). Plain HTTP, cached 1 day, never raises."""
+    key = hashlib.sha1(json.dumps(["image", url]).encode()).hexdigest()
+    if (hit := store.get("resolver", key, 86400)) is not None:
+        return hit.get("image_url")
+    try:
+        page, ev, final = _load(url, "", "")
+        img = _image(ev, page, final)
+    except Exception:  # _Fail, _Unsafe, HTTP errors: no image; cached too, the page will not change within a day
+        img = None
+    store.put("resolver", key, {"image_url": img})
+    return img
 
 
 def _load(url: str, title: str, start: str) -> tuple[_Page, dict | None, str]:

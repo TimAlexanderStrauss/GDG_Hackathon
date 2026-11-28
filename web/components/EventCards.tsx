@@ -51,18 +51,16 @@ export function SourceLabel({ platform }: { platform: Platform }) {
   );
 }
 
-/** All posts/pages of an event; older state without `sources` counts as the single source_url. */
-const sourcesOf = (e: Event): Source[] => (e.sources?.length ? e.sources : [{ platform: e.platform, url: e.source_url }]);
-
-/** "TikTok post", "Web page"; a repeated platform gets a number from its second link on ("TikTok post 2"). */
-function sourceLinkLabels(sources: Source[]): string[] {
-  const seen: Record<string, number> = {};
-  return sources.map((s) => {
-    const n = (seen[s.platform] = (seen[s.platform] ?? 0) + 1);
-    const base = s.platform === "web" ? "Web page" : `${PLATFORMS.find((p) => p.id === s.platform)?.label ?? s.platform} post`;
-    return n > 1 ? `${base} ${n}` : base;
-  });
+/** One post/page per platform (the primary first); older state without `sources` counts as the single source_url.
+ *  An organizer often posts the same event many times – one link per platform is enough. */
+function sourcesOf(e: Event): Source[] {
+  const all = e.sources?.length ? e.sources : [{ platform: e.platform, url: e.source_url }];
+  return all.filter((s, i) => all.findIndex((x) => x.platform === s.platform) === i);
 }
+
+/** "TikTok post", "Instagram post", "Web page". */
+const sourceLinkLabels = (sources: Source[]): string[] =>
+  sources.map((s) => (s.platform === "web" ? "Web page" : `${PLATFORMS.find((p) => p.id === s.platform)?.label ?? s.platform} post`));
 
 type Props = {
   events: Event[];

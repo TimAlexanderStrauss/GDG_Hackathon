@@ -126,10 +126,19 @@ def tiktok(city: str, tags: list[str]) -> list[dict]:
 
 
 def web(city: str, query: str) -> list[dict]:
-    """One Firecrawl v2 search (past month, 5 results, pages scraped as markdown). 2 credits + 1 per page."""
+    """City search: one Firecrawl v2 search (past month, 5 results, pages scraped as markdown). 2 credits + 1 per page."""
+    return _search(query, limit=5, recent=True)
+
+
+def web_topic(city: str, query: str) -> list[dict]:
+    """One interest: 3 results of any age (club and venue pages with weekly dates change rarely). 5 credits."""
+    return _search(query, limit=3, recent=False)
+
+
+def _search(query: str, limit: int, recent: bool) -> list[dict]:
     r = httpx.post("https://api.firecrawl.dev/v2/search", timeout=120,
                    headers={"Authorization": f"Bearer {os.environ['FIRECRAWL_API_KEY']}"},
-                   json={"query": query, "limit": 5, "tbs": "qdr:m",  # any city: no country filter
+                   json={"query": query, "limit": limit, **({"tbs": "qdr:m"} if recent else {}),  # no country filter
                          "scrapeOptions": {"formats": ["markdown"], "onlyMainContent": True}})
     r.raise_for_status()
     data = r.json().get("data") or []
@@ -137,7 +146,7 @@ def web(city: str, query: str) -> list[dict]:
     now = datetime.now(timezone.utc).isoformat()
     return [{"platform": "web", "url": i.get("url"), "posted_at": now, "location": None,
              "image_url": _link((m := i.get("metadata") or {}).get("ogImage") or m.get("og:image")),
-             "text": f"{i.get('title') or ''}\n{(i.get('markdown') or i.get('description') or '')[:4000]}"} for i in items]
+             "text": f"{i.get('title') or ''}\n{(i.get('markdown') or i.get('description') or '')[:8000]}"} for i in items]
 
 
 def add_bio_links(chosen: list[SocialPost], raw: list[dict], lookup=bio_links) -> list[SocialPost]:
@@ -149,7 +158,8 @@ def add_bio_links(chosen: list[SocialPost], raw: list[dict], lookup=bio_links) -
 
 
 def select(raw: list[dict], today: date) -> list[SocialPost]:
-    """Recent posts that name a date in the next 60 days (= event announcements), newest first."""
+    """Recent posts that name a date in the next 60 days (= event announcements), newest first. Web pages are kept
+    without that check: weekly dates ("jeden Montag ab 19 Uhr") have no date, the extraction resolves them."""
     since = datetime.now(timezone.utc) - timedelta(days=30)
     picked = {}
     for r in raw:
@@ -158,13 +168,13 @@ def select(raw: list[dict], today: date) -> list[SocialPost]:
         except ValidationError:
             continue
         posted = p.posted_at if p.posted_at.tzinfo else p.posted_at.replace(tzinfo=timezone.utc)
-        if posted >= since and first_date(p.text, today) and in_window(p.text, today, 60):
+        if p.platform == "web" or (posted >= since and first_date(p.text, today) and in_window(p.text, today, 60)):
             picked.setdefault(str(p.url), p)
     return sorted(picked.values(), key=lambda p: p.posted_at, reverse=True)[:PER_PLATFORM]
 
 
 def _text(source, arg) -> str:
-    if source is web:
+    if source in (web, web_topic):
         return f"Web search: {arg}"
     return f"{'Instagram' if source is instagram else 'TikTok'}: {', '.join('#' + t for t in arg[:3])}{' …' if len(arg) > 3 else ''}"
 
@@ -181,8 +191,8 @@ def fetch(city: str, tags: list[str] = (), add: bool = False) -> int:
     runs = [] if add else [(instagram, ig), (tiktok, tt), (web, f"Events Veranstaltungen {city}")]  # any city: no country filter
     if tags:
         it = interest_tags(city, tags)
-        runs += [(instagram, it), (tiktok, it), (web, f"Events {city} {' '.join(tags)}")]
-    runs = [r for r in runs if r[0] is not web or os.getenv("FIRECRAWL_API_KEY")]
+        runs += [(instagram, it), (tiktok, it)] + [(web_topic, f"{t} {city}") for t in tags]  # one search per interest
+    runs = [r for r in runs if r[0] not in (web, web_topic) or os.getenv("FIRECRAWL_API_KEY")]
     steps = len(runs) + sum(r[0] in (instagram, tiktok) for r in runs)  # every run, plus the bio links after each Instagram/TikTok run
     started, step = (store.get("fetches", slug(city)) or {}).get("started", time.time()), 0
 
@@ -242,6 +252,9 @@ def main() -> None:
     city = args.city
     try:
         fetch(city, args.tags, args.add)
+        from shared import store
+        if key := slug(city):  # finished: without it a fetch whose file was deleted later looks like a running one
+            store.put("fetches", key, {**(store.get("fetches", key) or {}), "finished": time.time()})
     except Exception as e:  # the detached run has no caller: leave a marker the server reads (never print e, token)
         from shared import store
         key = slug(city)
